@@ -38,11 +38,10 @@ Pico Reset is a push button to 0V
 
 ## Notes
 
-Since the pico is overclocked, everything is read into RAM at startup.
-```
-set(PICO_DEFAULT_BINARY_TYPE copy_to_ram)
-```
-There seems to be a limit on the number or ROMs that can be loaded (it's less than 8) before the CPC won't boot because the Pico is not ready. I think this delay is caused by the time it takes to copy the whole program + data into RAM at startup. I don't think overclocking would fix that.
+There seems to be a limit on the number or ROMs that can be loaded (it's less than 8) before the CPC won't boot because the Pico is not ready. I think this delay is caused by the time it takes to load the ROMs at startup. I don't think overclocking would fix that. 
+I've tried running everything from RAM, but that did not fix it.
+The limit seems to be around 4 expansion ROMs (+OS +BASIC +DIAG)
+If you disable the diag ROM, you can have 5 expansion ROMs (+OS +BASIC)
 
 
 ## Code

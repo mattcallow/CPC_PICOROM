@@ -29,6 +29,8 @@
 #include "roms/SYSX21.ROM.h"
 #include "roms/TOOLKIT.ROM.h"
 #include "roms/SUPER.ROM.h"
+#include "roms/UTOP107.ROM.h"
+#include "roms/Utopia_v1_25b.ROM.h"
 
 #include "roms/SuperRplus.rom.h"
 
@@ -50,12 +52,12 @@
 #include "roms/Manic_Miner.rom.h"
 
 #define NUM_BANKS 8
-static uint8_t *LOWER_ROM;
-static uint8_t *UPPER_ROMS[NUM_BANKS];
+static const uint8_t const* LOWER_ROM;
+static const uint8_t const* UPPER_ROMS[NUM_BANKS];
 
 #define BASIC_ROM BASIC_1_0_ROM
 #define OS_ROM OS_464_ROM
-#define DIAG_ROM AmstradDiagLower_rom
+// #define DIAG_ROM AmstradDiagLower_rom
 
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
 const uint32_t DATA_BUS_MASK    = 0xff << 14;
@@ -97,13 +99,13 @@ void emulate(void)
 int main() {
     // Set required ROMs, for blank roms, replace with BASIC_ROM
     UPPER_ROMS[0] = BASIC_ROM;
-    UPPER_ROMS[1] = maxam15_rom;
-    UPPER_ROMS[2] = Protext_rom;
+    UPPER_ROMS[1] = Protext_rom;
+    UPPER_ROMS[2] = maxam15_rom;
     UPPER_ROMS[3] = BASIC_ROM;
-    UPPER_ROMS[4] = BASIC_ROM;
+    UPPER_ROMS[4] = Arkanoid_rom;
     UPPER_ROMS[5] = BASIC_ROM;
-    UPPER_ROMS[6] = TOOLKIT_ROM;
-    UPPER_ROMS[7] = BASIC_ROM;
+    UPPER_ROMS[6] = Utopia_v1_25b_ROM;
+    UPPER_ROMS[7] = AMSDOS_0_7_ROM;
 
     gpio_init_mask(FULL_MASK);
     gpio_set_dir_in_masked(FULL_MASK);
