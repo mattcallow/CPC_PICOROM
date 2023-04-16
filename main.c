@@ -1,9 +1,18 @@
 // CPC ROM emulator
 // Matt Callow March 2023
 #include <string.h>
+#include <stdio.h>
+#include <tusb.h>
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
+#include "pico/bootrom.h"
 #include "hardware/vreg.h"
+#include "hardware/pio.h"
+#include "hardware/flash.h"
+#include "latch.pio.h"
 
+// Menu ROM
+#include "z80/picorom.rom.h"
 // OS ROMS
 #include "roms/OS_664.ROM.h"
 #include "roms/OS_464.ROM.h"
@@ -16,7 +25,6 @@
 #include "roms/BASIC_1.1.ROM.h"
 
 // Diag ROMS
-#include "roms/AmstradDiagLower.rom.h"
 #include "roms/AmstradDiagUpper.rom.h"
 
 // DOS ROMS
@@ -28,11 +36,7 @@
 #include "roms/pt12a.rom.h"
 #include "roms/SYSX21.ROM.h"
 #include "roms/TOOLKIT.ROM.h"
-#include "roms/SUPER.ROM.h"
-#include "roms/UTOP107.ROM.h"
 #include "roms/Utopia_v1_25b.ROM.h"
-
-#include "roms/SuperRplus.rom.h"
 
 // App ROMS
 #include "roms/Protext.rom.h"
@@ -43,21 +47,64 @@
 #include "roms/PACMAN.ROM.h"
 #include "roms/Classic_Invaders.rom.h"
 #include "roms/Roland_On_The_Ropes.rom.h"
-#include "roms/Donkey_Kong.rom.h"   // needs OS 1.1
+#include "roms/Roland_Goes_Digging.rom.h"
+#include "roms/Roland_Ahoy.rom.h"
+#include "roms/Roland_Goes_Square_Bashing.rom.h"
+#include "roms/Donkey_Kong.rom.h"  
 #include "roms/Gauntlet.rom.h"
 #include "roms/Blagger.rom.h"
 #include "roms/Hunchback.rom.h"
 #include "roms/Tempest.rom.h"
 #include "roms/EGGRSX.ROM.h"
 #include "roms/Manic_Miner.rom.h"
+#include "roms/One_Man_And_His_Droid.rom.h"
+#include "roms/Ohmummy.rom.h"
+#include "roms/Tapper.rom.h"
+#include "roms/Thrust.rom.h"
+#include "roms/Starfire.rom.h"
+
 
 #define NUM_BANKS 8
-static const uint8_t const* LOWER_ROM;
-static const uint8_t const* UPPER_ROMS[NUM_BANKS];
+#define ROM_SIZE 16384
+static uint8_t LOWER_ROM[ROM_SIZE];
+static uint8_t UPPER_ROMS[NUM_BANKS][ROM_SIZE];
+static volatile uint8_t rom_bank = 0;
 
-#define BASIC_ROM BASIC_1_0_ROM
-#define OS_ROM OS_464_ROM
-// #define DIAG_ROM AmstradDiagLower_rom
+typedef struct {
+    const uint8_t *rom;
+    char *name;
+} rom_entry_t;
+
+static rom_entry_t ROMLIST[] = {
+    { Protext_rom, "Protext"},
+    { maxam15_rom, "Maxam 1.5"},
+    { Utopia_v1_25b_ROM, "Utopia 1.25"},
+    { pt12a_rom, "Programmers Toolbox V1.2a"},
+    { AmstradDiagUpper_rom, "CPC Diag"},
+    { AMSDOS_0_5_ROM, "AMS DOS 0.5"},
+    { AMSDOS_0_7_ROM, "AMS DOS 0.7"},
+    { PARADOS_ROM, "PARADOS"},
+    { Donkey_Kong_rom, "Donkey Kong" },
+    { Blagger_rom, "Blagger" },
+    { PACMAN_ROM, "PacMan" },
+    { Arkanoid_rom, "Arkanoid" },
+    { Gauntlet_rom, "Gauntlet"},
+    { Hunchback_rom, "Hunchback"},
+    { Manic_Miner_rom, "Manic Miner"},
+    { One_Man_And_His_Droid_rom, "One Man and his Droid"},
+    { Roland_Ahoy_rom, "Roland Ahoy"},
+    { Roland_Goes_Digging_rom, "Roland Goes Digging"},
+    { Roland_Goes_Square_Bashing_rom, "Roland Goes Square Bashing"},
+    { Roland_On_The_Ropes_rom, "Roland On The Ropes"},
+    { Classic_Invaders_rom, "Classic Invaders"},
+    { Tapper_rom, "Tapper"},
+    { Thrust_rom, "Thrust"},
+    { Ohmummy_rom, "Oh Mummy"},
+    { Starfire_rom, "Starfile"},
+    { 0, 0}
+};
+
+
 
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
 const uint32_t DATA_BUS_MASK    = 0xff << 14;
@@ -67,14 +114,61 @@ const uint32_t A15_GPIO = 26;
 const uint32_t A15_MASK         = 1 << A15_GPIO;
 const uint32_t WRITE_LATCH_GPIO = 27;
 const uint32_t WRITE_LATCH_MASK = 1 << WRITE_LATCH_GPIO;
-const uint32_t BUTTON_GPIO = 28;
-const uint32_t BUTTON_MASK = 1 << BUTTON_GPIO;
+const uint32_t RESET_GPIO = 28;
+const uint32_t RESET_MASK = 1 << RESET_GPIO;
 
-const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|BUTTON_MASK;
+const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|RESET_MASK;
 
-void emulate(void)
+static inline void CPC_ASSERT_RESET()
 {
-    int rom_bank = 0;
+    gpio_set_dir(RESET_GPIO, GPIO_OUT);
+    gpio_put(RESET_GPIO, 0);
+}
+
+static inline void CPC_RELEASE_RESET()
+{
+    gpio_set_dir(RESET_GPIO, GPIO_IN);
+}
+
+// use the last sector (4k) of flash to store config
+#define FLASH_TARGET_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
+const uint8_t *config_pages = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
+
+// TODO - needs to work in single core, or stop the other core whilst programming
+#define CONFIG_MAGIC 0x7b0
+typedef struct {
+    uint16_t magic;
+    uint32_t rom_crcs[NUM_BANKS];
+    uint32_t crc;
+} config_t;
+
+bool __not_in_flash_func(load_config)(int slot) 
+{
+    config_t *config = (config_t *)(config_pages+1024*slot);
+    if (config->magic != CONFIG_MAGIC) {
+        return false;
+    }
+}
+
+bool __not_in_flash_func(save_config)(int slot)
+{
+    uint8_t buf[FLASH_SECTOR_SIZE];
+    config_t *config = (config_t *)buf;
+    config->magic = CONFIG_MAGIC;
+    printf("Erasing config 0x%x 0x%x\n", FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
+    flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
+    printf("region erased\n");
+    flash_range_program(FLASH_TARGET_OFFSET, buf, FLASH_SECTOR_SIZE);
+    printf("config stored\n");
+
+}
+
+
+PIO pio = pio0;
+uint sm = 0;
+
+void __not_in_flash_func(emulate)(void)
+{
     while(1) {
         uint32_t gpio = gpio_get_all();
         uint8_t data;
@@ -88,43 +182,210 @@ void emulate(void)
             gpio_set_dir_out_masked(DATA_BUS_MASK);
         } else {
             gpio_set_dir_in_masked(DATA_BUS_MASK);
-            if ((gpio & WRITE_LATCH_MASK ) == 0) {
-                rom_bank = (gpio >> 14) & 0xff;
-                if (rom_bank >= NUM_BANKS) rom_bank = 0;
-            } 
         }
     }
 }
 
-int main() {
-    // Set required ROMs, for blank roms, replace with BASIC_ROM
-    UPPER_ROMS[0] = BASIC_ROM;
-    UPPER_ROMS[1] = Protext_rom;
-    UPPER_ROMS[2] = maxam15_rom;
-    UPPER_ROMS[3] = BASIC_ROM;
-    UPPER_ROMS[4] = Arkanoid_rom;
-    UPPER_ROMS[5] = BASIC_ROM;
-    UPPER_ROMS[6] = Utopia_v1_25b_ROM;
-    UPPER_ROMS[7] = AMSDOS_0_7_ROM;
+#define RESP_BUF 0x100
+#define CMD_PREFIX_BYTE 0xfc
+#define CMD_LED 0xfe
+#define CMD_CFGLOAD 0xFD
+#define CMD_CFGSAVE 0xFC
+#define CMD_464 3
+#define CMD_6128 4
+#define CMD_664 5
+#define CMD_FW31 6
+#define CMD_ROMIN 0x10
+#define CMD_ROMOUT 0x11
 
+
+void __not_in_flash_func(handle_latch)(void)
+{
+    int cmd = 0;
+    int rom_index = 0;
+    int num_params = 0;
+    int params[4];
+    while(1) {
+        uint8_t latch =  pio_sm_get_blocking(pio, sm)  & 0xff;
+        // printf("l:%d c:%d rb:%d\n", latch, cmd, rom_bank);
+        switch(cmd) {
+            case 0:
+                switch (latch) {
+                    case CMD_PREFIX_BYTE:
+                        cmd = -1;
+                        break;
+                    case 0xfd:
+                    case 0xfe:
+                    case 0xff:
+                        break;
+                    default:
+                        rom_bank = latch;
+                        if (rom_bank >= NUM_BANKS) rom_bank = 0;
+                }
+                break;
+            case -1:
+                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "l:%d c:%d np:%d ri:%d p[0]:%d p[1]:%d", latch, cmd, num_params, rom_index, params[0], params[1]);
+                cmd = latch;
+                num_params = 0;
+                switch(cmd) {
+                    case 1: // dir
+                        rom_index = 0;
+                        // fall through
+                    case 2: // next dir
+                        if (strlen(ROMLIST[rom_index].name)) {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %s", rom_index, ROMLIST[rom_index].name);
+                            //strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], ROMLIST[rom_index].name);
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                            rom_index++;
+                        } else {
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
+                        }
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        cmd = 0;
+                        break;
+                    case 3: // switch to Basic 1.0
+                        CPC_ASSERT_RESET();
+                        memcpy(UPPER_ROMS[0], BASIC_1_0_ROM, ROM_SIZE);
+                        memcpy(LOWER_ROM, OS_464_ROM, ROM_SIZE);
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        CPC_RELEASE_RESET();
+                        cmd = 0;
+                        break;
+                    case 4: // switch to Basic 1.1
+                        CPC_ASSERT_RESET();
+                        memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
+                        memcpy(LOWER_ROM, OS_6128_ROM, ROM_SIZE);
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        CPC_RELEASE_RESET();
+                        cmd = 0;
+                        break;
+                    case 5: // switch to 664 mode
+                        CPC_ASSERT_RESET();
+                        memcpy(UPPER_ROMS[0], BASIC_664_ROM, ROM_SIZE);
+                        memcpy(LOWER_ROM, OS_664_ROM, ROM_SIZE);
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        CPC_RELEASE_RESET();
+                        cmd = 0;
+                        break;
+                    case CMD_FW31:
+                        CPC_ASSERT_RESET();
+                        memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
+                        memcpy(LOWER_ROM, FW315EN_ROM, ROM_SIZE);
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        CPC_RELEASE_RESET();
+                        cmd = 0;
+                        break;
+                    case CMD_ROMIN: // Load ROM into slot
+                        num_params = 2;
+                        break;
+                    case CMD_ROMOUT: // unload ROM into slot
+                    case CMD_LED: // LED
+                    case CMD_CFGLOAD:
+                    case CMD_CFGSAVE:
+                        num_params = 1;
+                        break;
+                    case 0xff: // reset pico
+                        reset_usb_boot(0, 0);
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        cmd = 0;
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                // load params
+                if (num_params > 0) {
+                    num_params--;
+                    params[num_params] = latch;
+                }
+                if (num_params == 0) {
+                    switch (cmd) {
+                        case CMD_ROMIN:
+                            CPC_ASSERT_RESET();
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMLOAD,%d, %d", params[0], params[1]);
+                            if (params[0] >= NUM_BANKS) params[0] = NUM_BANKS-1;
+                            if (params[0] < 0) params[0] = 0;
+                            // TODO - check upper bound
+                            if (params[1] < 0) params[1] = 0;
+                            memcpy(UPPER_ROMS[params[0]], ROMLIST[params[1]].rom, ROM_SIZE);
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            CPC_RELEASE_RESET();
+                            break;
+                        case CMD_ROMOUT:
+                            CPC_ASSERT_RESET();
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
+                            if (params[0] >= NUM_BANKS) params[0] = NUM_BANKS-1;
+                            if (params[0] < 0) params[0] = 0;
+                            memcpy(UPPER_ROMS[params[0]], UPPER_ROMS[0], ROM_SIZE);
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            CPC_RELEASE_RESET();
+                            break;
+                        case CMD_CFGSAVE:
+                            //save_config(params[0]);
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+
+                            break; 
+
+                        case CMD_LED:
+                            printf("LED,%d latch=%d num_params=%d\n", params[0], latch, num_params);
+                            gpio_put(PICO_DEFAULT_LED_PIN, params[0]!=0);
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            break;
+                    }
+                    cmd = 0;
+                }
+        }
+    }
+}
+
+// use the last page of flash for config
+
+
+int main() {
+    stdio_init_all();
+
+#ifdef DEBUG_CONFIG
+    while (!tud_cdc_connected()) { sleep_ms(100);  }
+    printf("tud_cdc_connected()\n");
+
+
+    printf("flash size = %d\n", PICO_FLASH_SIZE_BYTES);
+    if (load_config(0)) {
+        printf("Config loaded\n");
+    } else {
+        printf("Config invalid\n");
+        save_config(0);
+    }
+#endif
     gpio_init_mask(FULL_MASK);
     gpio_set_dir_in_masked(FULL_MASK);
     gpio_pull_down(WRITE_LATCH_GPIO); // pull down for diode OR
+    gpio_put(RESET_GPIO, 0);
+    //gpio_set_drive_strength(RESET_GPIO, GPIO_DRIVE_STRENGTH_12MA);
+    CPC_ASSERT_RESET();
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    gpio_put(PICO_DEFAULT_LED_PIN, 0);
 
-#ifdef DIAG_ROM
-    gpio_disable_pulls(BUTTON_GPIO);
-    gpio_pull_up(BUTTON_GPIO); // pull up for button
-    if (gpio_get(BUTTON_GPIO) == 0) {
-        LOWER_ROM = DIAG_ROM;
-    } else {
-        LOWER_ROM = OS_ROM;
+    // For blank roms, copy in the BASIC_ROM
+    for (int i=0;i<NUM_BANKS;i++) {
+        memcpy(UPPER_ROMS[i],  BASIC_1_0_ROM, ROM_SIZE);
     }
-#else
-    LOWER_ROM = OS_ROM;
-#endif
+    memcpy(UPPER_ROMS[NUM_BANKS-2], picorom_rom, ROM_SIZE);
+    memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
+
     // overclock
     set_sys_clock_khz(200000, true);
+    // set_sys_clock_khz(250000, true);
+    
+    multicore_launch_core1(emulate);
 
-    emulate();
+    uint offset = pio_add_program(pio, &latch_program);
+    latch_program_init(pio, sm, offset);
+    CPC_RELEASE_RESET();
+    handle_latch();
 }
 

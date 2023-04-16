@@ -1,0 +1,22 @@
+.program latch
+
+; Autopush must be enabled, with a threshold of 8.
+    wait 0 gpio 27          ; Wait write latch signal
+    in pins, 8              ; get the data bits
+    wait 1 gpio 27
+
+% c-sdk {
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+static inline void latch_program_init(PIO pio, uint sm, uint offset) {
+    pio_sm_config c = latch_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, 14); // data bus
+    // Shift to left, autopush enabled
+    sm_config_set_in_shift(&c, false, true, 8);
+    sm_config_set_clkdiv(&c, 1);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
