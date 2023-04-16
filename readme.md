@@ -8,9 +8,17 @@ CPC ROM Emulator using Pi Pico
 |ROMDIS     |-            |43     |-                 |
 |A15        |GPIO26       |3      |31|
 |WRITE_LATCH|GPIO27       |-      |32|
-|Button     |GPIO28       |-      |34|
-|CPC RESET  |-            |40     |-|
+|CPC RESET  |GPIO28       |40*    |34|
 |Pico RESET |-            |-      |30|
+
+
+\* GPIO28 connected to CPC RESET via a diode
+```
+CPC RESET __|\_|___ GPIO28
+            |/ |
+
+```
+CPC Reset also has a push button to 0V
 
 
 WRITE_LATCH signal is created using a Diode-OR gate:
@@ -18,7 +26,7 @@ WRITE_LATCH signal is created using a Diode-OR gate:
   A13 __|\|___
         |/|  |
              |
-  ~WR __|\|__|____  WRITE_LATCH
+  ~WR __|\|__|____  WRITE_LATCH (GPIO27)
         |/|  |
              |
 ~IORQ __|\|__|
@@ -30,9 +38,6 @@ ROMDIS is connected to 5V
 
 Pico is powered from 5V via a IN4148 diode to VSYS
 
-Button is a push button to 0V, with 1K pull up to 3V3
-
-CPC Reset is a push button to 0V
 
 Pico Reset is a push button to 0V
 

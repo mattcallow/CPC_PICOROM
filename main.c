@@ -364,7 +364,6 @@ int main() {
     gpio_set_dir_in_masked(FULL_MASK);
     gpio_pull_down(WRITE_LATCH_GPIO); // pull down for diode OR
     gpio_put(RESET_GPIO, 0);
-    //gpio_set_drive_strength(RESET_GPIO, GPIO_DRIVE_STRENGTH_12MA);
     CPC_ASSERT_RESET();
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
