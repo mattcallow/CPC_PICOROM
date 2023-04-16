@@ -1,3 +1,8 @@
+; Pico ROM control ROM
+; 
+ver_major		EQU 1
+ver_minor		EQU 0
+ver_patch		EQU 0
 TXT_OUTPUT: 	EQU $BB5A
 IO_PORT:		EQU $DFFC
 CMD_PICOLOAD	EQU $FF
@@ -17,9 +22,9 @@ CMD_ROMOUT:		EQU $11
 
 		org $c000
 		defb    1       ; background rom
-		defb    0
-		defb    0
-		defb    1
+		defb    ver_major
+		defb    ver_minor
+		defb    ver_patch
 		defw NAME_TABLE
 		jp INIT
 		jp BOOT
@@ -62,6 +67,15 @@ NAME_TABLE:
 		defm  "CFGLOA",'D'+128
 		defm  "CFGSAV",'E'+128
 		defb    0
+INIT:	
+		push HL
+		ld HL, START_MSG
+		call disp_str
+		pop HL
+		ret
+		
+START_MSG:	
+		defm  " Pico ROM v",'0'+ver_major,'.','0'+ver_minor,'.','0'+ver_patch,0x0d,0x0a,0x0d,0x0a,0x00
 
 ; 
 		MACRO CMD_1P cmd, invalid_msg
@@ -128,15 +142,7 @@ NAME_TABLE:
 		ENDM
 
 
-INIT:	
-		push HL
-		ld HL, START_MSG
-		call disp_str
-		pop HL
-		ret
-		
-START_MSG:	
-		defm  " Pico ROM v0.0.1",0x0d,0x0a,0x0d,0x0a,0x00
+
 
 IP_MSG:	
 		defm  "Invalid parameters",0x0d,0x0a,0x0d,0x0a,0x00

@@ -63,11 +63,14 @@
 #include "roms/Thrust.rom.h"
 #include "roms/Starfire.rom.h"
 
+#define VER_MAJOR 1
+#define VER_MINOR 0
+#define VER_PATCH 0
 // not enough RAM for 16 banks, but could do 12
-#define NUM_BANKS 8
+#define NUM_ROM_BANKS 8
 #define ROM_SIZE 16384
 static uint8_t LOWER_ROM[ROM_SIZE];
-static uint8_t UPPER_ROMS[NUM_BANKS][ROM_SIZE];
+static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
 static volatile uint8_t rom_bank = 0;
 
 typedef struct {
@@ -135,7 +138,7 @@ const uint8_t *config_pages = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET)
 #define CONFIG_MAGIC 0x7b0
 typedef struct {
     uint16_t magic;
-    uint32_t rom_crcs[NUM_BANKS];
+    uint32_t rom_crcs[NUM_ROM_BANKS];
     uint32_t crc;
 } config_t;
 
@@ -221,7 +224,7 @@ void __not_in_flash_func(handle_latch)(void)
                         break;
                     default:
                         rom_bank = latch;
-                        if (rom_bank >= NUM_BANKS) rom_bank = 0;
+                        if (rom_bank >= NUM_ROM_BANKS) rom_bank = 0;
                 }
                 break;
             case -1:
@@ -235,7 +238,6 @@ void __not_in_flash_func(handle_latch)(void)
                     case CMD_ROMDIR2: // next dir
                         if (strlen(ROMLIST[list_index].name)) {
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %s", list_index, ROMLIST[list_index].name);
-                            //strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], ROMLIST[rom_index].name);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                             list_index++;
@@ -278,9 +280,10 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;
                     case CMD_ROMLIST1: 
-                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "PICO FW Version %d.%d.%d  %d banks", 
-                                0,0,1,
-                                NUM_BANKS
+                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "PICO FW v%d.%d.%d ROM v%d.%d.%d  %d banks", 
+                                VER_MAJOR, VER_MINOR, VER_PATCH,
+                                UPPER_ROMS[rom_bank][1],UPPER_ROMS[rom_bank][2],UPPER_ROMS[rom_bank][3],
+                                NUM_ROM_BANKS
                             );
                         UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                         UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
@@ -289,7 +292,7 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;
                     case CMD_ROMLIST2: // next rom
-                        if (list_index < NUM_BANKS) {
+                        if (list_index < NUM_ROM_BANKS) {
                             uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
                             int i=0;
                             do {
@@ -316,7 +319,7 @@ void __not_in_flash_func(handle_latch)(void)
                     case CMD_ROMIN: // Load ROM into slot
                         num_params = 2;
                         break;
-                    case CMD_ROMOUT: // unload ROM into slot
+                    case CMD_ROMOUT: // unload ROM from slot
                     case CMD_LED: // LED
                     case CMD_CFGLOAD:
                     case CMD_CFGSAVE:
@@ -342,7 +345,7 @@ void __not_in_flash_func(handle_latch)(void)
                         case CMD_ROMIN:
                             CPC_ASSERT_RESET();
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMLOAD,%d, %d", params[0], params[1]);
-                            if (params[0] >= NUM_BANKS) params[0] = NUM_BANKS-1;
+                            if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
                             // TODO - check upper bound
                             if (params[1] < 0) params[1] = 0;
@@ -353,7 +356,7 @@ void __not_in_flash_func(handle_latch)(void)
                         case CMD_ROMOUT:
                             CPC_ASSERT_RESET();
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
-                            if (params[0] >= NUM_BANKS) params[0] = NUM_BANKS-1;
+                            if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
                             memcpy(UPPER_ROMS[params[0]], UPPER_ROMS[0], ROM_SIZE);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
@@ -362,9 +365,7 @@ void __not_in_flash_func(handle_latch)(void)
                         case CMD_CFGSAVE:
                             //save_config(params[0]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
-
                             break; 
-
                         case CMD_LED:
                             printf("LED,%d latch=%d num_params=%d\n", params[0], latch, num_params);
                             gpio_put(PICO_DEFAULT_LED_PIN, params[0]!=0);
@@ -404,7 +405,7 @@ int main() {
     gpio_put(PICO_DEFAULT_LED_PIN, 0);
 
     // For blank roms, copy in the BASIC_ROM
-    for (int i=0;i<NUM_BANKS;i++) {
+    for (int i=0;i<NUM_ROM_BANKS;i++) {
         memcpy(UPPER_ROMS[i],  BASIC_1_0_ROM, ROM_SIZE);
     }
     memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
