@@ -63,7 +63,7 @@
 #include "roms/Thrust.rom.h"
 #include "roms/Starfire.rom.h"
 
-
+// not enough RAM for 16 banks, but could do 12
 #define NUM_BANKS 8
 #define ROM_SIZE 16384
 static uint8_t LOWER_ROM[ROM_SIZE];
@@ -104,8 +104,6 @@ static rom_entry_t ROMLIST[] = {
     { 0, 0}
 };
 
-
-
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
 const uint32_t DATA_BUS_MASK    = 0xff << 14;
 const uint32_t ROMEN_GPIO = 22;
@@ -116,7 +114,6 @@ const uint32_t WRITE_LATCH_GPIO = 27;
 const uint32_t WRITE_LATCH_MASK = 1 << WRITE_LATCH_GPIO;
 const uint32_t RESET_GPIO = 28;
 const uint32_t RESET_MASK = 1 << RESET_GPIO;
-
 const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|RESET_MASK;
 
 static inline void CPC_ASSERT_RESET()
@@ -163,7 +160,6 @@ bool __not_in_flash_func(save_config)(int slot)
 
 }
 
-
 PIO pio = pio0;
 uint sm = 0;
 
@@ -191,20 +187,25 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_LED 0xfe
 #define CMD_CFGLOAD 0xFD
 #define CMD_CFGSAVE 0xFC
+#define CMD_ROMDIR1		0x1
+#define CMD_ROMDIR2		0x2
 #define CMD_464 3
 #define CMD_6128 4
 #define CMD_664 5
 #define CMD_FW31 6
+#define CMD_ROMLIST1	0x7
+#define CMD_ROMLIST2	0x8
+
 #define CMD_ROMIN 0x10
 #define CMD_ROMOUT 0x11
-
 
 void __not_in_flash_func(handle_latch)(void)
 {
     int cmd = 0;
-    int rom_index = 0;
+    int list_index = 0;
     int num_params = 0;
     int params[4];
+    char buf[32];
     while(1) {
         uint8_t latch =  pio_sm_get_blocking(pio, sm)  & 0xff;
         // printf("l:%d c:%d rb:%d\n", latch, cmd, rom_bank);
@@ -224,20 +225,20 @@ void __not_in_flash_func(handle_latch)(void)
                 }
                 break;
             case -1:
-                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "l:%d c:%d np:%d ri:%d p[0]:%d p[1]:%d", latch, cmd, num_params, rom_index, params[0], params[1]);
+                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "l:%d c:%d np:%d ri:%d p[0]:%d p[1]:%d", latch, cmd, num_params, list_index, params[0], params[1]);
                 cmd = latch;
                 num_params = 0;
                 switch(cmd) {
-                    case 1: // dir
-                        rom_index = 0;
+                    case CMD_ROMDIR1: // dir
+                        list_index = 0;
                         // fall through
-                    case 2: // next dir
-                        if (strlen(ROMLIST[rom_index].name)) {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %s", rom_index, ROMLIST[rom_index].name);
+                    case CMD_ROMDIR2: // next dir
+                        if (strlen(ROMLIST[list_index].name)) {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %s", list_index, ROMLIST[list_index].name);
                             //strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], ROMLIST[rom_index].name);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
-                            rom_index++;
+                            list_index++;
                         } else {
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
                         }
@@ -274,6 +275,42 @@ void __not_in_flash_func(handle_latch)(void)
                         memcpy(LOWER_ROM, FW315EN_ROM, ROM_SIZE);
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         CPC_RELEASE_RESET();
+                        cmd = 0;
+                        break;
+                    case CMD_ROMLIST1: 
+                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "PICO FW Version %d.%d.%d  %d banks", 
+                                0,0,1,
+                                NUM_BANKS
+                            );
+                        UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                        UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        list_index = 0;
+                        cmd = 0;
+                        break;
+                    case CMD_ROMLIST2: // next rom
+                        if (list_index < NUM_BANKS) {
+                            uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
+                            int i=0;
+                            do {
+                                buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
+                            } while(UPPER_ROMS[list_index][name_table+i++]< 0x80);
+                            buf[i] = 0;
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %02x %-16s %d.%d.%d", 
+                                list_index, 
+                                UPPER_ROMS[list_index][0], 
+                                buf,
+                                UPPER_ROMS[list_index][1], 
+                                UPPER_ROMS[list_index][2], 
+                                UPPER_ROMS[list_index][3]
+                            );
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                            list_index++;
+                        } else {
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
+                        }
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
                     case CMD_ROMIN: // Load ROM into slot
@@ -341,9 +378,6 @@ void __not_in_flash_func(handle_latch)(void)
     }
 }
 
-// use the last page of flash for config
-
-
 int main() {
     stdio_init_all();
 
@@ -373,8 +407,9 @@ int main() {
     for (int i=0;i<NUM_BANKS;i++) {
         memcpy(UPPER_ROMS[i],  BASIC_1_0_ROM, ROM_SIZE);
     }
-    memcpy(UPPER_ROMS[NUM_BANKS-2], picorom_rom, ROM_SIZE);
     memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
+    memcpy(UPPER_ROMS[6], picorom_rom, ROM_SIZE);
+    memcpy(UPPER_ROMS[5], maxam15_rom, ROM_SIZE);
 
     // overclock
     set_sys_clock_khz(200000, true);

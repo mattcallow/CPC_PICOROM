@@ -4,14 +4,16 @@ CMD_PICOLOAD	EQU $FF
 CMD_LED:		EQU $FE
 CMD_CFGLOAD:	EQU $FD
 CMD_CFGSAVE:	EQU $FC
-CMD_464:		EQU 3
-CMD_6128:		EQU 4
-CMD_664:		EQU 5
-CMD_FW31:		EQU 6
+CMD_ROMDIR1		EQU $1
+CMD_ROMDIR2		EQU $2
+CMD_464:		EQU $3
+CMD_6128:		EQU $4
+CMD_664:		EQU $5
+CMD_FW31:		EQU $6
+CMD_ROMLIST1	EQU $7
+CMD_ROMLIST2	EQU $8
 CMD_ROMIN:		EQU $10
 CMD_ROMOUT:		EQU $11
-
-
 
 		org $c000
 		defb    1       ; background rom
@@ -22,7 +24,7 @@ CMD_ROMOUT:		EQU $11
 		jp INIT
 		jp BOOT
 		jp LED
-		jp ROM_DIR
+		jp ROMDIR
 		jp GO_464
 		jp GO_664
 		jp GO_6128
@@ -93,6 +95,38 @@ NAME_TABLE:
 		ret
 		ENDM
 
+		MACRO LIST_COMMAND cmd1, cmd2
+		LOCAL wait, done
+		ld hl, RESP_BUF
+		ld a, (hl)		; get current sequence number in A
+		ld BC, IO_PORT 	; command prefix
+		out (c), c
+		ld C, cmd1 	; command byte
+		out (c), c
+.wait
+		cp (hl)			; wait for the sequence number to be updated
+		jr z, wait
+		inc hl		; point to status code 
+		ld a, (hl)
+		or a
+		jr nz,  done
+		inc hl		; skip data type # FIXME
+		inc hl		; point to start of response
+		call disp_str
+		call cr_nl
+		; get next
+		ld hl, RESP_BUF
+		ld a, (hl)		; get current sequence number in A
+		ld BC, IO_PORT	; command prefix
+		out (c), c
+		ld C, cmd2 	; command byte
+		out (c), c
+		jr		wait	; wait for next command to complete
+.done
+		call cr_nl
+		ret
+		ENDM
+
 
 INIT:	
 		push HL
@@ -117,38 +151,9 @@ GO_464: 	CMD_0P_NOWAIT CMD_464
 GO_664: 	CMD_0P_NOWAIT CMD_664
 GO_6128: 	CMD_0P_NOWAIT CMD_6128
 GO_FW31: 	CMD_0P_NOWAIT CMD_FW31
+ROMDIR:		LIST_COMMAND CMD_ROMDIR1, CMD_ROMDIR2
+ROMLIST:	LIST_COMMAND CMD_ROMLIST1, CMD_ROMLIST2
 
-
-
-ROM_DIR:
-		ld hl, RESP_BUF
-		ld a, (hl)		; get current sequence number in A
-		ld BC, IO_PORT 	; command prefix
-		out (c), c
-		ld BC, $DF01 	; command byte
-		out (c), c
-WAIT:
-		cp (hl)			; wait for the sequence number to be updated
-		jr z, WAIT
-		inc hl		; point to status code 
-		ld a, (hl)
-		or a
-		jr nz,  ROM_DIR_DONE
-		inc hl		; skip data type # FIXME
-		inc hl		; point to start of response
-		call disp_str
-		call cr_nl
-		; get next
-		ld hl, RESP_BUF
-		ld a, (hl)		; get current sequence number in A
-		ld BC, IO_PORT	; command prefix
-		out (c), c
-		ld BC, $DF02 	; command byte
-		out (c), c
-		jr		WAIT
-ROM_DIR_DONE:
-		call cr_nl
-		ret
 
 ROMIN:
 		cp	2
@@ -174,8 +179,6 @@ ROMOUT:		CMD_1P CMD_ROMOUT, RO_U_MSG
 RO_U_MSG:
 		defm  " Usage |ROMOUT,<ROM SLOT>",0x0d,0x0a,0x0d,0x0a,0x00
 
-ROMLIST:
-		ret
 
 cr_nl:
 		push af

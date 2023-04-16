@@ -43,34 +43,32 @@ Pico Reset is a push button to 0V
 
 ## Notes
 
-There seems to be a limit on the number or ROMs that can be loaded (it's less than 8) before the CPC won't boot because the Pico is not ready. I think this delay is caused by the time it takes to load the ROMs at startup. I don't think overclocking would fix that. 
-I've tried running everything from RAM, but that did not fix it.
-The limit seems to be around 4 expansion ROMs (+OS +BASIC +DIAG)
-If you disable the diag ROM, you can have 5 expansion ROMs (+OS +BASIC)
+At startup, ROMs are loaded into RAM arrays, the the second core emulates all ROM
+The first core handles the ROM latch at 0xDFxx with the help of a PIO state machine. The same IO port is also used to send commands to the PICO. This is done by writing a series of bytes to the port, startign with a 0xfc (which I don't think is a valid ROM number). Format is as follows:
+* 0xfc - cmd prefix
+* cmd byte
+* 0 to 4 parameter bytes
 
+Data is sent from the PICO to the CPC via a 0xff byte area in the ROM at 0xC100. Format is as follows:
+* sequence number - incremented when the PICO has completed the command
+* status code. 0=OK
+* data type. 1 = null terminated string
+* data ( 0 or more bytes)
 
-## Code
+There is a CPC ROM which provides a control over the ROM emulator.
 
-### Startup: 
-* Load ROMs into arrays.
-* Set all GPIO as inputs
-* set pulldown on WRITE_LATCH
-* if diag rom enabled, set pullup on Button, then
-  * if button pressed, load diag rom
-  * else basic rom
-* else load basic rom
-* enable overclock
-
-### Loop:
-  - read all gpio
-  - if ROMEN is low:
-    - if A15 is low, get data from lower ROM
-    - else get data from upper ROM
-    - write data to GPIO
-    - set data lines as output
-  - else:
-    - set data lines as input
-    - if WRITE_LATCH is low, latch ROM bank from data lines
-
+## ROM Commands
+* PICOLOAD - reboot the PICO into bootloader mode
+* LED - Control the PICO LED
+* ROMDIR - list the available ROMS
+* CPC464 - Load 464 ROMS
+* CPC664 - Load 664 ROMS
+* CPC6128 - Load 6128 ROMS
+* FW31 - Load FW31 ROMS
+* ROMIN - Load a ROM into a slot
+* ROMOUT - Remove a ROM from a slot
+* ROMLIST - List ROM slots
+* CFGLOAD - Load a ROM configuration (not yet implemented)
+* CFGSAVE - Save current ROM configuration (not yet implemented)
 
 
