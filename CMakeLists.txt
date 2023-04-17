@@ -35,6 +35,7 @@ target_link_libraries(cpc_rom_emulator
     pico_multicore
     pico_bootrom
     hardware_pio
+    hardware_dma
    )
 
 pico_enable_stdio_usb(cpc_rom_emulator 1)

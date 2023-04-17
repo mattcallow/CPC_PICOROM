@@ -1,9 +1,10 @@
 ; Pico ROM control ROM
 ; 
 ver_major		EQU 1
-ver_minor		EQU 0
+ver_minor		EQU 1
 ver_patch		EQU 0
 TXT_OUTPUT: 	EQU $BB5A
+KM_WAIT_KEY:	EQU $BB18
 IO_PORT:		EQU $DFFC
 CMD_PICOLOAD	EQU $FF
 CMD_LED:		EQU $FE
@@ -40,18 +41,6 @@ CMD_ROMOUT:		EQU $11
 		jp CFGLOAD
 		jp CFGSAVE
 
-		
-		ALIGN $100
-RESP_BUF:
-		; RESP_BUF
-		; 0 - sequence number, increased by Pico for each response
-		; 1 - status code. 0=OK
-		; 2 - data type. 1 = 0 terminated string
-		; 3.. data
-		DEFS $100, 0
-
-		ASSERT RESP_BUF == $100
-
 NAME_TABLE:	
 		defm  "PICO RO",'M'+128
 		defm  "PICOLOA", 'D'+128
@@ -75,7 +64,7 @@ INIT:
 		ret
 		
 START_MSG:	
-		defm  " Pico ROM v",'0'+ver_major,'.','0'+ver_minor,'.','0'+ver_patch,0x0d,0x0a,0x0d,0x0a,0x00
+		defm  " Pico ROM v",'0'+ver_major,'.','0'+ver_minor,'0'+ver_patch,0x0d,0x0a,0x0d,0x0a,0x00
 
 ; 
 		MACRO CMD_1P cmd, invalid_msg
@@ -110,7 +99,8 @@ START_MSG:
 		ENDM
 
 		MACRO LIST_COMMAND cmd1, cmd2
-		LOCAL wait, done
+		LOCAL wait, done ,nokey
+		ld d, 22
 		ld hl, RESP_BUF
 		ld a, (hl)		; get current sequence number in A
 		ld BC, IO_PORT 	; command prefix
@@ -124,6 +114,15 @@ START_MSG:
 		ld a, (hl)
 		or a
 		jr nz,  done
+		dec d
+		jr nz, nokey
+		push hl
+		ld hl, KEY_MSG
+		call disp_str
+		pop hl
+		call KM_WAIT_KEY
+		ld d,22
+.nokey
 		inc hl		; skip data type # FIXME
 		inc hl		; point to start of response
 		call disp_str
@@ -141,7 +140,7 @@ START_MSG:
 		ret
 		ENDM
 
-
+KEY_MSG:	defm 0x0d,0x0a,"*** Press any key ***",0x0d,0x0a,0x0d,0x0a,0x00
 
 
 IP_MSG:	
@@ -206,4 +205,11 @@ disp_str1:
 		pop af
 		ret
 END:
-		DEFS $4000-END
+		DEFS $4000-END-$100
+RESP_BUF:
+		; Response buffer
+		; 0 - sequence number, increased by Pico for each response
+		; 1 - status code. 0=OK
+		; 2 - data type. 1 = 0 terminated string
+		; 3.. data
+		DEFS $100, 0
