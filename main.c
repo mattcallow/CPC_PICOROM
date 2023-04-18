@@ -66,7 +66,7 @@
 #include "roms/Starfire.rom.h"
 
 #define VER_MAJOR 1
-#define VER_MINOR 1
+#define VER_MINOR 2
 #define VER_PATCH 0
 // not enough RAM for 16 banks, but could do 12
 #define NUM_ROM_BANKS 8
@@ -76,10 +76,12 @@
 static uint8_t LOWER_ROM[ROM_SIZE];
 static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
 static volatile uint8_t rom_bank = 0;
+static volatile bool rom7_enable = false;
 
 typedef struct {
     const uint8_t *rom;
     char *name;
+    uint32_t crc;
 } rom_entry_t;
 
 static rom_entry_t LOWER_ROMLIST[] = {
@@ -89,6 +91,7 @@ static rom_entry_t LOWER_ROMLIST[] = {
     { FW315EN_ROM, "FW 3.1"},
     {0,0}
 };
+static int num_lower_roms = 0;
 
 static rom_entry_t ROMLIST[] = {
     { picorom_rom ,"PicoROM"},      // picorom must be the first in the list
@@ -120,6 +123,7 @@ static rom_entry_t ROMLIST[] = {
     { Starfire_rom, "Starfile"},
     { 0, 0}
 };
+static int num_upper_roms = 0;
 
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
 const uint32_t DATA_BUS_MASK    = 0xff << 14;
@@ -196,6 +200,7 @@ int current_config = -1;
 typedef struct {
     uint16_t magic;
     uint32_t ver;
+    bool rom7_enable;
     uint32_t lower_rom_crc;
     uint32_t rom_crcs[NUM_ROM_BANKS];
     uint32_t crc;
@@ -222,7 +227,7 @@ bool __not_in_flash_func(load_config)(int slot)
 #endif
     int idx = 0;
     while(LOWER_ROMLIST[idx].rom) {
-        if (config->lower_rom_crc == calc_crc32(LOWER_ROMLIST[idx].rom, CRC_SIZE)) {
+        if (config->lower_rom_crc == LOWER_ROMLIST[idx].crc) {
             memcpy(LOWER_ROM, LOWER_ROMLIST[idx].rom, ROM_SIZE);
 #ifdef DEBUG_CONFIG
             printf("Loaded %d\n", idx);
@@ -242,11 +247,11 @@ bool __not_in_flash_func(load_config)(int slot)
 #ifdef DEBUG_CONFIG
         printf("Upper ROM %d ", i);
 #endif
-        idx = 0;
-        while(ROMLIST[idx].rom) {
-            if (config->rom_crcs[i] == calc_crc32(ROMLIST[idx].rom, CRC_SIZE)) {
-                memcpy(UPPER_ROMS[i], ROMLIST[idx].rom, ROM_SIZE);
-                if (idx == 0) {
+        rom_entry_t *r = ROMLIST;
+        while(r && r->rom) {
+            if (config->rom_crcs[i] == r->crc) {
+                memcpy(UPPER_ROMS[i], r->rom, ROM_SIZE);
+                if (r == ROMLIST) {
                     picorom_loaded = true;
                 }
 #ifdef DEBUG_CONFIG
@@ -254,7 +259,11 @@ bool __not_in_flash_func(load_config)(int slot)
 #endif
                 break;
             }
-            idx++;
+            r++;
+        }
+        if (!r || !r->rom) {
+            // no rom loaded
+            memset(UPPER_ROMS[i], 0xff, ROM_SIZE);
         }
     }
     if (!picorom_loaded) {
@@ -263,6 +272,7 @@ bool __not_in_flash_func(load_config)(int slot)
 #endif 
         memcpy(UPPER_ROMS[6], ROMLIST[0].rom, ROM_SIZE);
     }
+    rom7_enable = config->rom7_enable;
     current_config = slot;
     return true;
 }
@@ -277,6 +287,7 @@ bool __not_in_flash_func(save_config)(int slot)
     config_t *config = (config_t *)(buf+CONFIG_SIZE*slot);
     config->magic = CONFIG_MAGIC;
     config->ver = VER_MAJOR << 16 + VER_MINOR << 8 + VER_PATCH;
+    config->rom7_enable = rom7_enable;
     config->lower_rom_crc = calc_crc32(LOWER_ROM, CRC_SIZE);
     for (int i=0;i<NUM_ROM_BANKS;i++) {
         config->rom_crcs[i] = calc_crc32(UPPER_ROMS[i], CRC_SIZE);
@@ -310,12 +321,17 @@ void __not_in_flash_func(emulate)(void)
         uint8_t data;
         if ((gpio & ROMEN_MASK) == 0) {
             if (gpio & A15_MASK) {
-                data = UPPER_ROMS[rom_bank][gpio&ADDRESS_BUS_MASK];
+                if ((rom7_enable == true)|| (rom_bank != 7)) {
+                    gpio_put_masked(DATA_BUS_MASK, UPPER_ROMS[rom_bank][gpio&ADDRESS_BUS_MASK] << 14);
+                    gpio_set_dir_out_masked(DATA_BUS_MASK);
+                } else {
+                    gpio_set_dir_in_masked(DATA_BUS_MASK);
+                }
             } else {
-                data = LOWER_ROM[gpio&ADDRESS_BUS_MASK];
+                gpio_put_masked(DATA_BUS_MASK, LOWER_ROM[gpio&ADDRESS_BUS_MASK] << 14);
+                gpio_set_dir_out_masked(DATA_BUS_MASK);
+
             }
-            gpio_put_masked(DATA_BUS_MASK, data << 14);
-            gpio_set_dir_out_masked(DATA_BUS_MASK);
         } else {
             gpio_set_dir_in_masked(DATA_BUS_MASK);
         }
@@ -328,6 +344,7 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_LED 0xfe
 #define CMD_CFGLOAD 0xFD
 #define CMD_CFGSAVE 0xFC
+#define CMD_ROM7 0xFB
 #define CMD_ROMDIR1		0x1
 #define CMD_ROMDIR2		0x2
 #define CMD_464 3
@@ -432,19 +449,34 @@ void __not_in_flash_func(handle_latch)(void)
                         break;
                     case CMD_ROMLIST2: // next rom
                         if (list_index < NUM_ROM_BANKS) {
-                            uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
-                            int i=0;
-                            do {
-                                buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
-                            } while(UPPER_ROMS[list_index][name_table+i++]< 0x80);
-                            buf[i] = 0;
+                            uint8_t type = UPPER_ROMS[list_index][0];
+                            uint8_t major = UPPER_ROMS[list_index][1];
+                            uint8_t minor = UPPER_ROMS[list_index][2];
+                            uint8_t patch = UPPER_ROMS[list_index][3];
+                            if ((type < 3 || type == 0x80) && (list_index !=7 || rom7_enable)) {
+                                uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
+                                int i=0;
+                                do {
+                                    buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
+                                } while(UPPER_ROMS[list_index][name_table+i++]< 0x80);
+                                buf[i] = 0;
+                            } else {
+                                if (list_index == 7 && !rom7_enable) {
+                                    strcpy(buf, " - Disabled  -  ");
+                                } else {
+                                    strcpy(buf, " -Not present-  ");
+                                }
+                                major = 0;
+                                minor = 0;
+                                patch = 0;
+                            }
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %02x %-16s %d.%d%d", 
                                 list_index, 
-                                UPPER_ROMS[list_index][0], 
+                                type, 
                                 buf,
-                                UPPER_ROMS[list_index][1], 
-                                UPPER_ROMS[list_index][2], 
-                                UPPER_ROMS[list_index][3]
+                                major, 
+                                minor, 
+                                patch
                             );
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
@@ -462,6 +494,7 @@ void __not_in_flash_func(handle_latch)(void)
                     case CMD_LED: // LED
                     case CMD_CFGLOAD:
                     case CMD_CFGSAVE:
+                    case CMD_ROM7:
                         num_params = 1;
                         break;
                     case CMD_PICOLOAD:
@@ -486,7 +519,7 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMLOAD,%d, %d", params[0], params[1]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            // TODO - check upper bound
+                            if (params[1] >= num_upper_roms) params[1] = num_upper_roms-1;
                             if (params[1] < 0) params[1] = 0;
                             memcpy(UPPER_ROMS[params[0]], ROMLIST[params[1]].rom, ROM_SIZE);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
@@ -497,15 +530,17 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            memcpy(UPPER_ROMS[params[0]], UPPER_ROMS[0], ROM_SIZE);
+                            memset(UPPER_ROMS[params[0]], 0xff, ROM_SIZE);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             CPC_RELEASE_RESET();
                             break;
                         case CMD_CFGSAVE:
+                            // TODO check bounds
                             save_config(params[0]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break; 
                         case CMD_CFGLOAD:
+                            // TODO check bounds
                             CPC_ASSERT_RESET();
                             load_config(params[0]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
@@ -517,6 +552,12 @@ void __not_in_flash_func(handle_latch)(void)
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break;
+                        case CMD_ROM7:
+                            //printf("LED,%d latch=%d num_params=%d\n", params[0], latch, num_params);
+                            rom7_enable = params[0]!=0;
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            break;                        
                     }
                     cmd = 0;
                 }
@@ -540,6 +581,15 @@ int main() {
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 0);
 
+    // count roms, calc crcs
+    for (rom_entry_t *r=LOWER_ROMLIST;r && r->rom;r++) {
+        num_lower_roms++;
+        r->crc = calc_crc32(r->rom, CRC_SIZE);
+    }
+    for (rom_entry_t *r=ROMLIST;r && r->rom;r++) {
+        num_upper_roms++;
+        r->crc = calc_crc32(r->rom, CRC_SIZE);
+    }
     if (load_config(0)) {
 #ifdef DEBUG_CONFIG
         printf("Config loaded\n");
@@ -548,15 +598,17 @@ int main() {
 #ifdef DEBUG_CONFIG
         printf("Config invalid - loading defaults\n");
 #endif
-        // For blank roms, copy in the BASIC_ROM
-        for (int i=0;i<NUM_ROM_BANKS;i++) {
-            memcpy(UPPER_ROMS[i],  BASIC_1_0_ROM, ROM_SIZE);
+        memcpy(UPPER_ROMS[0],  BASIC_1_0_ROM, ROM_SIZE);
+        for (int i=1;i<NUM_ROM_BANKS;i++) {
+            memset(UPPER_ROMS[i],  0xff, ROM_SIZE);
         }
         memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
         memcpy(UPPER_ROMS[6], picorom_rom, ROM_SIZE);
+        rom7_enable = false;
     }
-    // overclock
-    set_sys_clock_khz(200000, true);
+    // overclock - pick the lowest freq that works reliably
+    //set_sys_clock_khz(200000, true);
+    set_sys_clock_khz(225000, true);
     // set_sys_clock_khz(250000, true);
     multicore_launch_core1(emulate);
 
