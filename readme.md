@@ -59,16 +59,17 @@ There is a CPC ROM which provides a control over the ROM emulator.
 
 ## ROM Commands
 * PICOLOAD - reboot the PICO into bootloader mode
-* LED - Control the PICO LED
+* LED,n - Control the PICO LED n=1 for on, n=0 for off
 * ROMDIR - list the available ROMS
 * CPC464 - Load 464 ROMS
 * CPC664 - Load 664 ROMS
 * CPC6128 - Load 6128 ROMS
 * FW31 - Load FW31 ROMS
-* ROMIN - Load a ROM into a slot
-* ROMOUT - Remove a ROM from a slot
+* ROMIN,n,m - Load ROM m into a slot n
+* ROMOUT,n - Remove ROM from a slot n
 * ROMLIST - List ROM slots
-* CFGLOAD - Load a ROM configuration (not yet implemented)
-* CFGSAVE - Save current ROM configuration (not yet implemented)
+* CFGLOAD,n - Load a ROM configuration from config slot n
+* CFGSAVE,n - Save current ROM configuration into config slot n
+* ROM7,n - Enable (n=1) or disable (n=0) ROM slot 7
 
 
