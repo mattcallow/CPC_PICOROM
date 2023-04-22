@@ -33,12 +33,14 @@
 #include "roms/AMSDOS_0.5.ROM.h"
 #include "roms/AMSDOS_0.7.ROM.h"
 #include "roms/PARADOS.ROM.h"
+#include "roms/unidos.rom.h"
 
 // Util ROMS
 #include "roms/pt12a.rom.h"
 #include "roms/SYSX21.ROM.h"
 #include "roms/TOOLKIT.ROM.h"
 #include "roms/Utopia_v1_25b.ROM.h"
+#include "roms/unitools.rom.h"
 
 // App ROMS
 #include "roms/Protext.rom.h"
@@ -69,7 +71,7 @@
 #define VER_MINOR 2
 #define VER_PATCH 0
 // not enough RAM for 16 banks, but could do 12
-#define NUM_ROM_BANKS 8
+#define NUM_ROM_BANKS 12
 #define ROM_SIZE 16384
 // don't CRC that last page of ROM as the PicoROM modifies this
 #define CRC_SIZE (ROM_SIZE - 0x100)
@@ -102,10 +104,12 @@ static rom_entry_t ROMLIST[] = {
     { maxam15_rom, "Maxam 1.5"},
     { Utopia_v1_25b_ROM, "Utopia 1.25"},
     { pt12a_rom, "Programmers Toolbox V1.2a"},
+    { unitools_rom, "UniTools"},
     { AmstradDiagUpper_rom, "CPC Diag"},
     { AMSDOS_0_5_ROM, "AMS DOS 0.5"},
     { AMSDOS_0_7_ROM, "AMS DOS 0.7"},
     { PARADOS_ROM, "PARADOS"},
+    { unidos_rom, "UniDOS"},
     { Donkey_Kong_rom, "Donkey Kong" },
     { Blagger_rom, "Blagger" },
     { PACMAN_ROM, "PacMan" },
