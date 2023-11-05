@@ -1,4 +1,6 @@
 CPC ROM Emulator using Pi Pico
+![Completed Board](/hardware/PicoROM_Assembled.jpg)
+
 
 |Signal     |GPIO         |CPC Pin|Pico Pin          |
 |-----------|-------------|-------|------------------|
@@ -71,5 +73,15 @@ There is a CPC ROM which provides a control over the ROM emulator.
 * CFGLOAD,n - Load a ROM configuration from config slot n
 * CFGSAVE,n - Save current ROM configuration into config slot n
 * ROM7,n - Enable (n=1) or disable (n=0) ROM slot 7
+
+## PCB
+**WARNING** There is an error on the schematic and PCB silkscreen. D2 is reversed. So, if you are going to build this, make sure that you insert D2 with the cathode (stripe) at the bottom.
+----
+There is a schematic and PCB layout which includes an optional USB interface.
+![Schematic](hardware/schematic.png)
+![PCB](hardware/pcb.png)
+
+My PCBs were made by PCBWay. The [gerbers](hardware/gerbers.zip) I used are also avalilable.
+
 
 
