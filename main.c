@@ -15,6 +15,7 @@
 
 // Menu ROM
 #include "z80/picorom.rom.h"
+
 // OS ROMS
 #include "roms/OS_664.ROM.h"
 #include "roms/OS_464.ROM.h"
@@ -34,6 +35,8 @@
 #include "roms/AMSDOS_0.7.ROM.h"
 #include "roms/PARADOS.ROM.h"
 #include "roms/unidos.rom.h"
+#include "roms/AlbiDOS.rom.h"
+#include "roms/Albireo.rom.h"
 
 // Util ROMS
 #include "roms/pt12a.rom.h"
@@ -67,6 +70,7 @@
 #include "roms/Thrust.rom.h"
 #include "roms/Starfire.rom.h"
 
+#define INCLUDE_GAMES
 #define VER_MAJOR 1
 #define VER_MINOR 2
 #define VER_PATCH 0
@@ -110,6 +114,9 @@ static rom_entry_t ROMLIST[] = {
     { AMSDOS_0_7_ROM, "AMS DOS 0.7"},
     { PARADOS_ROM, "PARADOS"},
     { unidos_rom, "UniDOS"},
+    { AlbiDOS_rom, "Albireo DOS"}, 
+    { Albireo_rom, "Albireo Node for UniDOS"},
+#ifdef INCLUDE_GAMES
     { Donkey_Kong_rom, "Donkey Kong" },
     { Blagger_rom, "Blagger" },
     { PACMAN_ROM, "PacMan" },
@@ -125,6 +132,7 @@ static rom_entry_t ROMLIST[] = {
     { Thrust_rom, "Thrust"},
     { Ohmummy_rom, "Oh Mummy"},
     { Starfire_rom, "Starfile"},
+#endif
     { 0, 0}
 };
 static int num_upper_roms = 0;
@@ -612,8 +620,8 @@ int main() {
     }
     // overclock - pick the lowest freq that works reliably
     //set_sys_clock_khz(200000, true);
-    set_sys_clock_khz(225000, true);
-    // set_sys_clock_khz(250000, true);
+    //set_sys_clock_khz(225000, true);
+    set_sys_clock_khz(250000, true);
     multicore_launch_core1(emulate);
 
     uint offset = pio_add_program(pio, &latch_program);
