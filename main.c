@@ -13,62 +13,6 @@
 #include "hardware/dma.h"
 #include "latch.pio.h"
 
-// Menu ROM
-#include "z80/picorom.rom.h"
-
-// OS ROMS
-#include "roms/OS_664.ROM.h"
-#include "roms/OS_464.ROM.h"
-#include "roms/OS_6128.ROM.h"
-#include "roms/FW315EN.ROM.h"
-
-// Basic ROMS
-#include "roms/BASIC_1.0.ROM.h"
-#include "roms/BASIC_664.ROM.h"
-#include "roms/BASIC_1.1.ROM.h"
-
-// Diag ROMS
-#include "roms/AmstradDiagUpper.rom.h"
-
-// DOS ROMS
-#include "roms/AMSDOS_0.5.ROM.h"
-#include "roms/AMSDOS_0.7.ROM.h"
-#include "roms/PARADOS.ROM.h"
-#include "roms/unidos.rom.h"
-#include "roms/AlbiDOS.rom.h"
-#include "roms/Albireo.rom.h"
-
-// Util ROMS
-#include "roms/pt12a.rom.h"
-#include "roms/SYSX21.ROM.h"
-#include "roms/TOOLKIT.ROM.h"
-#include "roms/Utopia_v1_25b.ROM.h"
-#include "roms/unitools.rom.h"
-
-// App ROMS
-#include "roms/Protext.rom.h"
-#include "roms/maxam15.rom.h"
-
-// Game ROMS
-#include "roms/Arkanoid.rom.h"
-#include "roms/PACMAN.ROM.h"
-#include "roms/Classic_Invaders.rom.h"
-#include "roms/Roland_On_The_Ropes.rom.h"
-#include "roms/Roland_Goes_Digging.rom.h"
-#include "roms/Roland_Ahoy.rom.h"
-#include "roms/Roland_Goes_Square_Bashing.rom.h"
-#include "roms/Donkey_Kong.rom.h"  
-#include "roms/Gauntlet.rom.h"
-#include "roms/Blagger.rom.h"
-#include "roms/Hunchback.rom.h"
-#include "roms/Tempest.rom.h"
-#include "roms/EGGRSX.ROM.h"
-#include "roms/Manic_Miner.rom.h"
-#include "roms/One_Man_And_His_Droid.rom.h"
-#include "roms/Ohmummy.rom.h"
-#include "roms/Tapper.rom.h"
-#include "roms/Thrust.rom.h"
-#include "roms/Starfire.rom.h"
 
 #define INCLUDE_GAMES
 #define VER_MAJOR 1
@@ -90,51 +34,20 @@ typedef struct {
     uint32_t crc;
 } rom_entry_t;
 
-static rom_entry_t LOWER_ROMLIST[] = {
-    { OS_464_ROM, "OS 1.0"},
-    { OS_664_ROM ,"OS 1.1"},
-    { OS_6128_ROM, "OS 1.2"},
-    { FW315EN_ROM, "FW 3.1"},
-    {0,0}
-};
+typedef struct {
+    uint32_t rom_offset;// 4 bytes
+    uint32_t rom_size;  // 4
+    uint32_t rom_type;  // 4
+    uint32_t crc;       // 4
+    char name[48];      // 48
+} rom_index_t;
+
+static rom_entry_t LOWER_ROMLIST[] = {};
+
 static int num_lower_roms = 0;
 
-static rom_entry_t ROMLIST[] = {
-    { picorom_rom ,"PicoROM"},      // picorom must be the first in the list
-    { BASIC_1_0_ROM, "Basic 1.0"},
-    { BASIC_664_ROM, "664 Basic"},
-    { BASIC_1_1_ROM, "Basic 1.1"},
-    { Protext_rom, "Protext"},
-    { maxam15_rom, "Maxam 1.5"},
-    { Utopia_v1_25b_ROM, "Utopia 1.25"},
-    { pt12a_rom, "Programmers Toolbox V1.2a"},
-    { unitools_rom, "UniTools"},
-    { AmstradDiagUpper_rom, "CPC Diag"},
-    { AMSDOS_0_5_ROM, "AMS DOS 0.5"},
-    { AMSDOS_0_7_ROM, "AMS DOS 0.7"},
-    { PARADOS_ROM, "PARADOS"},
-    { unidos_rom, "UniDOS"},
-    { AlbiDOS_rom, "Albireo DOS"}, 
-    { Albireo_rom, "Albireo Node for UniDOS"},
-#ifdef INCLUDE_GAMES
-    { Donkey_Kong_rom, "Donkey Kong" },
-    { Blagger_rom, "Blagger" },
-    { PACMAN_ROM, "PacMan" },
-    { Arkanoid_rom, "Arkanoid" },
-    { Gauntlet_rom, "Gauntlet"},
-    { Hunchback_rom, "Hunchback"},
-    { Manic_Miner_rom, "Manic Miner"},
-    { One_Man_And_His_Droid_rom, "One Man and his Droid"},
-    { Roland_Goes_Digging_rom, "Roland Goes Digging"},
-    { Roland_On_The_Ropes_rom, "Roland On The Ropes"},
-    { Classic_Invaders_rom, "Classic Invaders"},
-    { Tapper_rom, "Tapper"},
-    { Thrust_rom, "Thrust"},
-    { Ohmummy_rom, "Oh Mummy"},
-    { Starfire_rom, "Starfile"},
-#endif
-    { 0, 0}
-};
+static rom_entry_t ROMLIST[] = {};
+
 static int num_upper_roms = 0;
 
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
@@ -200,9 +113,10 @@ uint32_t calc_crc32(const void* buf, uint32_t size)
     dma_channel_unclaim(chan);
     return crc;
 }
-// use the last sector (4k) of flash to store config
-#define FLASH_TARGET_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
-const uint8_t *config_pages = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
+extern uint32_t __CONFIG_START[];
+extern uint32_t __CONFIG_LEN[];
+
+uint8_t *config_pages = (uint8_t *) (__CONFIG_START);
 int current_config = -1;
 
 // store 4 config blocks at each on 1K boundary
@@ -293,7 +207,7 @@ bool __not_in_flash_func(save_config)(int slot)
 {
     uint8_t buf[FLASH_SECTOR_SIZE];
     uint32_t irq_status;
-    // cpoy existing config pages to RAM
+    // copy existing config pages to RAM
     memcpy(buf, config_pages, sizeof(buf));
     // update config at slot 'slot'
     config_t *config = (config_t *)(buf+CONFIG_SIZE*slot);
@@ -310,13 +224,13 @@ bool __not_in_flash_func(save_config)(int slot)
     printf("Erasing config 0x%x 0x%x\n", FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
 #endif
     irq_status = save_and_disable_interrupts();
-    flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
+    flash_range_erase((uint32_t)__CONFIG_START - XIP_BASE, (size_t)__CONFIG_LEN);
     restore_interrupts(irq_status);
 #ifdef DEBUG_CONFIG
     printf("region erased\n");
 #endif
     irq_status = save_and_disable_interrupts();
-    flash_range_program(FLASH_TARGET_OFFSET, buf, FLASH_SECTOR_SIZE);
+    flash_range_program((uint32_t)__CONFIG_START - XIP_BASE, buf, (size_t)__CONFIG_LEN);
     restore_interrupts(irq_status);
 #ifdef DEBUG_CONFIG
     printf("config stored\n");
@@ -416,32 +330,32 @@ void __not_in_flash_func(handle_latch)(void)
                         break;
                     case 3: // switch to Basic 1.0
                         CPC_ASSERT_RESET();
-                        memcpy(UPPER_ROMS[0], BASIC_1_0_ROM, ROM_SIZE);
-                        memcpy(LOWER_ROM, OS_464_ROM, ROM_SIZE);
+                        // memcpy(UPPER_ROMS[0], BASIC_1_0_ROM, ROM_SIZE);
+                        // memcpy(LOWER_ROM, OS_464_ROM, ROM_SIZE);
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         CPC_RELEASE_RESET();
                         cmd = 0;
                         break;
                     case 4: // switch to Basic 1.1
                         CPC_ASSERT_RESET();
-                        memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
-                        memcpy(LOWER_ROM, OS_6128_ROM, ROM_SIZE);
+                        // memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
+                        // memcpy(LOWER_ROM, OS_6128_ROM, ROM_SIZE);
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         CPC_RELEASE_RESET();
                         cmd = 0;
                         break;
                     case 5: // switch to 664 mode
                         CPC_ASSERT_RESET();
-                        memcpy(UPPER_ROMS[0], BASIC_664_ROM, ROM_SIZE);
-                        memcpy(LOWER_ROM, OS_664_ROM, ROM_SIZE);
+                        // memcpy(UPPER_ROMS[0], BASIC_664_ROM, ROM_SIZE);
+                        // memcpy(LOWER_ROM, OS_664_ROM, ROM_SIZE);
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         CPC_RELEASE_RESET();
                         cmd = 0;
                         break;
                     case CMD_FW31:
                         CPC_ASSERT_RESET();
-                        memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
-                        memcpy(LOWER_ROM, FW315EN_ROM, ROM_SIZE);
+                        // memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
+                        // memcpy(LOWER_ROM, FW315EN_ROM, ROM_SIZE);
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         CPC_RELEASE_RESET();
                         cmd = 0;
@@ -610,12 +524,12 @@ int main() {
 #ifdef DEBUG_CONFIG
         printf("Config invalid - loading defaults\n");
 #endif
-        memcpy(UPPER_ROMS[0],  BASIC_1_0_ROM, ROM_SIZE);
+        // memcpy(UPPER_ROMS[0],  BASIC_1_0_ROM, ROM_SIZE);
         for (int i=1;i<NUM_ROM_BANKS;i++) {
             memset(UPPER_ROMS[i],  0xff, ROM_SIZE);
         }
-        memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
-        memcpy(UPPER_ROMS[6], picorom_rom, ROM_SIZE);
+        // memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
+        // memcpy(UPPER_ROMS[6], picorom_rom, ROM_SIZE);
         rom7_enable = false;
     }
     // overclock - pick the lowest freq that works reliably

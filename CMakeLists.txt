@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
+
 # initialize the SDK based on PICO_SDK_PATH
 # note: this must happen before project()
 include(pico_sdk_import.cmake)
@@ -17,7 +18,10 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPICO_USE_MALLOC_MUTEX=1")
 add_executable(cpc_rom_emulator
     main.c
 )
- 
+
+pico_set_linker_script(cpc_rom_emulator ${CMAKE_SOURCE_DIR}/memmap_custom.ld)
+
+
 pico_generate_pio_header(cpc_rom_emulator ${CMAKE_CURRENT_LIST_DIR}/latch.pio)
 
 add_custom_command(OUTPUT "z80/picorom.rom.h"
