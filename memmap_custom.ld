@@ -21,12 +21,12 @@
     __stack (== StackTop)
 */
 
-__FLASH_START = 0x10000000;
-__FLASH_LEN = 128k;
+__ROM_LEN = 1536k + 4k;
 __CONFIG_LEN = 4k;
+__FLASH_START = 0x10000000;
+__FLASH_LEN = 2048k - __ROM_LEN - __CONFIG_LEN;
 __CONFIG_START = 0x20000000 - __CONFIG_LEN;
 __ROM_START = __FLASH_START + __FLASH_LEN;
-__ROM_LEN = 2048k - __FLASH_LEN - __CONFIG_LEN;
 
 MEMORY
 {
@@ -43,14 +43,6 @@ ENTRY(_entry_point)
 
 SECTIONS
 {
-
-    .roms : {
-        "ADDR_ROMS" = .;
-    } > ROMS
-
-    .config : {
-        "ADDR_CONFIG" = .;
-    } > CONFIG
     /* Second stage bootloader is prepended to the image. It must be 256 bytes big
        and checksummed. It is usually built by the boot_stage2 target
        in the Raspberry Pi Pico SDK

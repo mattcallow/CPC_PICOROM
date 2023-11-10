@@ -23,10 +23,20 @@
 #define ROM_SIZE 16384
 // don't CRC that last page of ROM as the PicoROM modifies this
 #define CRC_SIZE (ROM_SIZE - 0x100)
+// RAM copies of the ROMs
 static uint8_t LOWER_ROM[ROM_SIZE];
 static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
 static volatile uint8_t rom_bank = 0;
 static volatile bool rom7_enable = false;
+
+// values from the linker
+extern uint32_t __FLASH_START[];
+extern uint32_t __FLASH_LEN[];
+extern uint32_t __CONFIG_START[];
+extern uint32_t __CONFIG_LEN[];
+extern uint32_t __ROM_START[];
+extern uint32_t __ROM_LEN[];
+
 
 typedef struct {
     const uint8_t *rom;
@@ -34,13 +44,14 @@ typedef struct {
     uint32_t crc;
 } rom_entry_t;
 
+#pragma pack(push,1)
 typedef struct {
     uint32_t rom_offset;// 4 bytes
-    uint32_t rom_size;  // 4
-    uint32_t rom_type;  // 4
-    uint32_t crc;       // 4
-    char name[48];      // 48
+    uint16_t rom_size;  // 2
+    uint8_t  rom_type;  // 1
+    char name[35];      // 35
 } rom_index_t;
+#pragma pack(pop)
 
 static rom_entry_t LOWER_ROMLIST[] = {};
 
@@ -113,10 +124,9 @@ uint32_t calc_crc32(const void* buf, uint32_t size)
     dma_channel_unclaim(chan);
     return crc;
 }
-extern uint32_t __CONFIG_START[];
-extern uint32_t __CONFIG_LEN[];
 
 uint8_t *config_pages = (uint8_t *) (__CONFIG_START);
+
 int current_config = -1;
 
 // store 4 config blocks at each on 1K boundary
@@ -221,7 +231,7 @@ bool __not_in_flash_func(save_config)(int slot)
     config->crc = calc_crc32(config, sizeof(config)-sizeof(uint32_t));
     // erase and re-save all config
 #ifdef DEBUG_CONFIG
-    printf("Erasing config 0x%x 0x%x\n", FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
+    printf("Erasing config 0x%x 0x%x\n", (uint32_t)__CONFIG_START - XIP_BASE, (size_t)__CONFIG_LEN);
 #endif
     irq_status = save_and_disable_interrupts();
     flash_range_erase((uint32_t)__CONFIG_START - XIP_BASE, (size_t)__CONFIG_LEN);
@@ -491,12 +501,17 @@ void __not_in_flash_func(handle_latch)(void)
     }
 }
 
+rom_index_t *rom_index = (rom_index_t *)__ROM_START;
+
+
 int main() {
 #ifdef DEBUG_CONFIG
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
     printf("tud_cdc_connected()\n");
-    printf("flash size = %d\n", PICO_FLASH_SIZE_BYTES);
+    printf("__FLASH_START 0x%0x __FLASH_LEN 0x%0x \n", __FLASH_START, __FLASH_LEN);
+    printf("__ROM_START 0x%0x __ROM_LEN 0x%0x \n", __ROM_START, __ROM_LEN);
+    printf("__CONFIG_START 0x%0x __CONFIG_LEN 0x%0x \n", __CONFIG_START, __CONFIG_LEN);
 #endif
     gpio_init_mask(FULL_MASK);
     gpio_set_dir_in_masked(FULL_MASK);
@@ -507,6 +522,34 @@ int main() {
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 0);
 
+#ifdef DEBUG_CONFIG
+    printf("rom_index is 0x%0x - listing ROMs\n", rom_index);
+#endif
+    rom_index_t *i = rom_index;
+    int bank = -1;
+    while (i && i->rom_offset) {
+#ifdef DEBUG_CONFIG
+        printf("%s 0x%0x 0x%0x 0x%0x\n", i->name, i->rom_size, i->rom_offset, (void *)rom_index + i->rom_offset);
+#endif
+        /* load a fixed set of ROMS */
+        if (bank == -1) {
+            memcpy(LOWER_ROM, (void *)rom_index + i->rom_offset, ROM_SIZE);
+        } else {
+            memcpy(UPPER_ROMS[bank], (void *)rom_index + i->rom_offset, ROM_SIZE);
+        }
+        bank++;
+        if (bank >= NUM_ROM_BANKS) {
+            break;
+        }
+        i++;
+    }
+    while(bank < NUM_ROM_BANKS) {
+        memset(UPPER_ROMS[bank], 0xff, ROM_SIZE);
+        bank++;
+    }
+    rom7_enable = true;
+
+# if 0
     // count roms, calc crcs
     for (rom_entry_t *r=LOWER_ROMLIST;r && r->rom;r++) {
         num_lower_roms++;
@@ -532,6 +575,9 @@ int main() {
         // memcpy(UPPER_ROMS[6], picorom_rom, ROM_SIZE);
         rom7_enable = false;
     }
+
+#endif
+
     // overclock - pick the lowest freq that works reliably
     //set_sys_clock_khz(200000, true);
     //set_sys_clock_khz(225000, true);
