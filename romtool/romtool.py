@@ -5,23 +5,23 @@ import math
 import configparser
 import os
 from io import BytesIO
+import zipfile
+
 # Generate UF2 file of ROMS
 '''
 File will start with an index block (8k), then each ROM (up to 16K each)
 
 typedef struct {
-    uint32_t rom_offset;// 4 bytes
-    uint16_t rom_size;  // 2
-    uint8_t  rom_type;  // 1   0=foreground, 1=background, 2=extension, 0x80=basic, 0xff=lower
-    char name[35];      // 35
+    uint8_t  rom_type;  // 1   0=foreground, 1=background, 2=extension, 0x40=lower, 0x80=basic, 0xff=missing
+    char name[33];      // 33
 } rom_index_t;
 
-Each ROM index is 42 bytes
-max 96 ROMS = 4096 bytes
+Each ROM index is 34 bytes
+max 120 ROMS = 4096 bytes
 
 
 total ROM space is 1536+4K
-1536 = 96 x 16k ROMS
+1920k = 120 x 16k ROMS
 4K = index
 
 Flash Layout
@@ -32,6 +32,26 @@ Flash Layout
 0x20000000
 '''
 
+'''
+Config block (4K)
+
+Each config entry is 64 bytes:
+NUM_ROM_BANKS = 12
+typedef struct {
+    uint16_t magic;                     // 2
+    uint16_t ver;                       // 2
+    uint8_t active;                     // 1
+    uint8_t rom7_enable;                // 1
+    int8_t lower_rom;                  // 1
+    int8_t upper_roms[NUM_ROM_BANKS];  // 12
+    char desc[33];                      // 33
+    char spare[12];                      // 12
+} config_t;
+
+Therefore, 16 configs are possible
+
+
+'''
 
 '''
 UF2
@@ -51,30 +71,38 @@ struct UF2_Block {
 } UF2_Block;
 
 
+
+
 '''
-
-__ROM_LEN = (1536 * 1024) + (4 * 1024)
-__CONFIG_LEN = (4 * 1024)
-__FLASH_START = 0x10000000
-__FLASH_LEN = (2048 * 1024) - __ROM_LEN - __CONFIG_LEN
-__CONFIG_START = 0x20000000 - __CONFIG_LEN
-__ROM_START = __FLASH_START + __FLASH_LEN
-
-
 
 INDEX_SIZE=4096
 SLOT_SIZE=16384
-MAX_ROMS=96
+MAX_ROMS=120
 FAMILY_ID = 0xe48bff56 # RP2040
 BLOCK_SIZE = 0x100
 
-def image2uf2(infile, outfile):
+
+__INDEX_LEN = 4096
+__ROM_LEN = (MAX_ROMS * 16384)
+__CONFIG_LEN = 4096
+__FLASH_START = 0x10000000
+
+__FLASH_LEN = (2048*1024) - __ROM_LEN - __CONFIG_LEN - __INDEX_LEN
+__INDEX_START = __FLASH_START + __FLASH_LEN
+__ROM_START = __INDEX_START + __INDEX_LEN
+__CONFIG_START = __ROM_START + __ROM_LEN
+
+
+
+
+def image2uf2(infile, outfile, start_address):
     blockno = 0
-    target = __ROM_START
-    print("ROM address is 0x%08x" % __ROM_START)
+    target = start_address
+    print("Start address is 0x%08x" % start_address)
     with open(outfile, 'wb') as f:
         infile.seek(0,2) # go to the end of the file
         size = infile.tell()
+        print("image size is %d" % size)
         num_blocks = math.ceil(size/BLOCK_SIZE)
         infile.seek(0)
         while True:
@@ -92,7 +120,7 @@ def image2uf2(infile, outfile):
 
 
 def roms2image(romdir, romlist, out):
-    index = []
+    index = {}
     for rom in romlist.keys():
         v=romlist[rom].split(',')
         if len(v) < 2:
@@ -102,7 +130,7 @@ def roms2image(romdir, romlist, out):
         type = None
         if len(v) >2:
             if v[2].upper() == 'L':
-                type = 0xff
+                type = 0x40
             else:
                 type = int(v[2])
         rom=int(rom)
@@ -110,21 +138,49 @@ def roms2image(romdir, romlist, out):
             raise ValueError('max ROM number is is %d' % (MAX_ROMS - 1))
         offset = INDEX_SIZE + SLOT_SIZE * rom
         out.seek(offset)
-        with open(os.path.join(romdir, filename), 'rb') as f:
-            if type is None:
-                # Get rom type from the image file
-                type = f.read(1)
-                out.write(type)
-                type = ord(type)
-            out.write(f.read())
-            size = f.tell()
-            print("Added rom #%2d at offset 0x%08x: %s, size %s, type 0x%02x" % (rom, offset, name, size, type))                
-            index.append((offset,size,type,name))
+        path = os.path.join(romdir, filename)
+        if zipfile.is_zipfile(path):
+            z = zipfile.ZipFile(path)
+            rom_name = [n for n in z.namelist() if n.upper().endswith(".ROM")][0]
+            buf = z.read(rom_name)
+            z.close()
+        else:
+            f = open(path, 'rb')
+            buf = f.read()
+            f.close()
+        if type is None:
+            # Get rom type from the image file
+            type = buf[0]
+        out.write(buf)
+        size = len(buf)
+        print("Added rom #%2d at offset 0x%08x: type 0x%02x, size %s %s" % (rom, offset, type, size, name))                
+        index[rom] = (type, name)
     # go back to the start of the file and add the index
     out.seek(0)
-    for i in index:
-        out.write(struct.pack('<LHB34sx', i[0], i[1], i[2], bytes(i[3], 'ascii')))
+    for i in range(0,MAX_ROMS):
+        if i in index:
+            out.write(struct.pack('<B32sx', index[i][0], bytes(index[i][1], 'ascii')))
+        else:
+            out.write(struct.pack('<B33x', 0xff))
 
+
+CONFIG_MAGIC = 0x7b0
+CONFIG_VERSION = 1
+def config2image(config, out):
+    for section in config.sections():
+        if not section.startswith('CONFIG'):
+            continue
+        print("Adding %s" % section)
+
+        cfg = struct.pack('<HHBBb12b32sx12x', 
+                  CONFIG_MAGIC,
+                  CONFIG_VERSION,
+                  config[section].getint('ACTIVE', 0),
+                  1 if config[section].getint('SLOT7', -1) >=0 else 0,
+                  int(config[section].get('LOWER', -1)),
+                  *[config[section].getint(f'SLOT%d' % slot, -1) for slot in range(12)],
+                  bytes(config[section]['DESCRIPTION'],'ascii'))
+        out.write(cfg)
 
 
 if __name__ == '__main__':
@@ -133,8 +189,20 @@ if __name__ == '__main__':
     buf = BytesIO()
     roms2image(config['INPUT']['romdir'], config['ROMS'], buf)
     buf.seek(0)
-    # with open('roms.bin', 'wb') as f:
-    #     f.write(buf.read())
-    # buf.seek(0)
-    image2uf2(buf, config['OUTPUT']['romfile'])
+    with open('roms.bin', 'wb') as f:
+        f.write(buf.read())
+    buf.seek(0)
+    image2uf2(buf, config['OUTPUT']['romfile'], __INDEX_START) # TODO - split index and rOM
+    
+    buf = BytesIO()
+    buf.seek(4095)
+    buf.write(b'\0')
+    buf.seek(0)
+    config2image(config, buf)
+    buf.seek(0)
+    with open('config.bin', 'wb') as f:
+        f.write(buf.read())
+    buf.seek(0)
+    image2uf2(buf, config['OUTPUT']['configfile'], __CONFIG_START)
+
 

@@ -1,6 +1,6 @@
 // CPC ROM emulator
 // Matt Callow March 2023
-#undef DEBUG_CONFIG
+#define DEBUG_CONFIG
 #include <string.h>
 #include <stdio.h>
 #include <tusb.h>
@@ -14,9 +14,8 @@
 #include "latch.pio.h"
 
 
-#define INCLUDE_GAMES
-#define VER_MAJOR 1
-#define VER_MINOR 2
+#define VER_MAJOR 2
+#define VER_MINOR 0
 #define VER_PATCH 0
 // not enough RAM for 16 banks, but could do 12
 #define NUM_ROM_BANKS 12
@@ -32,35 +31,47 @@ static volatile bool rom7_enable = false;
 // values from the linker
 extern uint32_t __FLASH_START[];
 extern uint32_t __FLASH_LEN[];
-extern uint32_t __CONFIG_START[];
-extern uint32_t __CONFIG_LEN[];
+extern uint32_t __INDEX_START[];
+extern uint32_t __INDEX_LEN[];
 extern uint32_t __ROM_START[];
 extern uint32_t __ROM_LEN[];
+extern uint32_t __CONFIG_START[];
+extern uint32_t __CONFIG_LEN[];
 
 
-typedef struct {
-    const uint8_t *rom;
-    char *name;
-    uint32_t crc;
-} rom_entry_t;
 
 #pragma pack(push,1)
 typedef struct {
-    uint32_t rom_offset;// 4 bytes
-    uint16_t rom_size;  // 2
     uint8_t  rom_type;  // 1
-    char name[35];      // 35
+    char name[33];      // 33
 } rom_index_t;
+
+typedef struct {
+    uint16_t magic;
+    uint16_t ver;
+    uint8_t active;
+    uint8_t rom7_enable;
+    int8_t lower_rom;
+    int8_t upper_roms[NUM_ROM_BANKS];
+    char desc[33];
+    char spare[12];
+} config_t;
 #pragma pack(pop)
 
-static rom_entry_t LOWER_ROMLIST[] = {};
+#define CONFIG_VER 1
+
+#define MAX_ROMS 120
+#define INDEX_ENTRY_SIZE sizeof(rom_index_t)
+#define INDEX_SIZE (MAX_ROMS * INDEX_ENTRY_SIZE)
+#define CONFIG_SIZE sizeof(config_t)
+#define MAX_CONFIG 16
+#define CONFIG_MAGIC 0x7b0
 
 static int num_lower_roms = 0;
-
-static rom_entry_t ROMLIST[] = {};
-
 static int num_upper_roms = 0;
 
+static int upper_roms[NUM_ROM_BANKS];
+static int lower_rom;
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
 const uint32_t DATA_BUS_MASK    = 0xff << 14;
 const uint32_t ROMEN_GPIO = 22;
@@ -72,6 +83,23 @@ const uint32_t WRITE_LATCH_MASK = 1 << WRITE_LATCH_GPIO;
 const uint32_t RESET_GPIO = 28;
 const uint32_t RESET_MASK = 1 << RESET_GPIO;
 const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|RESET_MASK;
+
+#define INSERT_UPPER_ROM(slot, rom_number) { \
+    upper_roms[slot] = rom_number; \
+    if (rom_number < 0) { \
+        memset(UPPER_ROMS[slot], 0xff, ROM_SIZE);\
+    } else {\
+        memcpy(UPPER_ROMS[slot],  __ROM_START + INDEX_SIZE + ROM_SIZE*rom_number, ROM_SIZE);\
+    }\
+} 
+#define INSERT_LOWER_ROM(rom_number) { \
+    lower_rom = rom_number; \
+    if (rom_number < 0) { \
+        memset(LOWER_ROM, 0xff, ROM_SIZE);\
+    } else {\
+        memcpy(LOWER_ROM,  __ROM_START + INDEX_SIZE + ROM_SIZE*rom_number, ROM_SIZE);\
+    }\
+} 
 
 static inline void CPC_ASSERT_RESET()
 {
@@ -105,7 +133,10 @@ uint32_t calc_crc32(const void* buf, uint32_t size)
     channel_config_set_sniff_enable(&c, true);
     dma_sniffer_set_data_accumulator(CRC32_INIT);
     dma_sniffer_enable(chan, DMA_SNIFF_CTRL_CALC_VALUE_CRC32, true);
-
+    hw_set_bits(&dma_hw->sniff_ctrl,
+		    (DMA_SNIFF_CTRL_OUT_INV_BITS | DMA_SNIFF_CTRL_OUT_REV_BITS));
+	
+    // dma_hw->sniff_data = 0xffffffff;
     dma_channel_configure(
         chan,          // Channel to be configured
         &c,            // The configuration we just created
@@ -125,88 +156,45 @@ uint32_t calc_crc32(const void* buf, uint32_t size)
     return crc;
 }
 
-uint8_t *config_pages = (uint8_t *) (__CONFIG_START);
+//uint8_t *config_pages = (uint8_t *) (__CONFIG_START);
 
 int current_config = -1;
 
-// store 4 config blocks at each on 1K boundary
-#define MAX_CONFIG 4
-#define CONFIG_SIZE 1024
-#define CONFIG_MAGIC 0x7b0
-typedef struct {
-    uint16_t magic;
-    uint32_t ver;
-    bool rom7_enable;
-    uint32_t lower_rom_crc;
-    uint32_t rom_crcs[NUM_ROM_BANKS];
-    uint32_t crc;
-} config_t;
+int __not_in_flash_func(find_active_config)() 
+{
+    config_t *config = (config_t *)__CONFIG_START;
+    for (int i=0;i<MAX_CONFIG;i++, config++) {
+        if (config->magic == CONFIG_MAGIC && config->ver == CONFIG_VER && config->active) {
+            return i;
+        }
+    }
+    return -1;
+}
 
 bool __not_in_flash_func(load_config)(int slot) 
 {
-    config_t *config = (config_t *)(config_pages+CONFIG_SIZE*slot);
+    config_t *config = &((config_t *)__CONFIG_START)[slot];
+#ifdef DEBUG_CONFIG
+    printf("loading config %d magic=%x ver=%x\n", slot, config->magic, config->ver);
+#endif
     if (config->magic != CONFIG_MAGIC) {
         return false;
     }
-    uint32_t crc = calc_crc32(config, sizeof(config)-sizeof(uint32_t));
-#ifdef DEBUG_CONFIG
-    printf("calculated crc %lu stored crc %lu\n", crc, config->crc);
-#endif
-    if (crc != config->crc) {
-        return false;
-    }
-    if (config->ver != VER_MAJOR << 16 + VER_MINOR << 8 + VER_PATCH) {
+    if (config->ver != CONFIG_VER) {
         return false;
     }
 #ifdef DEBUG_CONFIG
-    printf("Lower ROM   ");
+    printf("ROM %d -> Lower ROM\n", config->lower_rom);
 #endif
-    int idx = 0;
-    while(LOWER_ROMLIST[idx].rom) {
-        if (config->lower_rom_crc == LOWER_ROMLIST[idx].crc) {
-            memcpy(LOWER_ROM, LOWER_ROMLIST[idx].rom, ROM_SIZE);
-#ifdef DEBUG_CONFIG
-            printf("Loaded %d\n", idx);
-#endif
-            break;
-        }
-        idx++;
-    }
-    if (!LOWER_ROMLIST[idx].rom) {
-#ifdef DEBUG_CONFIG
-        printf("Failed to load lower ROM\n");
-#endif
+    if (config->lower_rom < 0) {
         return false;
     }
-    bool picorom_loaded = false;
+    INSERT_LOWER_ROM(config->lower_rom);
     for (int i=0;i<NUM_ROM_BANKS;i++) {
 #ifdef DEBUG_CONFIG
-        printf("Upper ROM %d ", i);
+        printf("ROM %d -> Upper ROM %d\n", config->upper_roms[i], i);
 #endif
-        rom_entry_t *r = ROMLIST;
-        while(r && r->rom) {
-            if (config->rom_crcs[i] == r->crc) {
-                memcpy(UPPER_ROMS[i], r->rom, ROM_SIZE);
-                if (r == ROMLIST) {
-                    picorom_loaded = true;
-                }
-#ifdef DEBUG_CONFIG
-                printf("Loaded %d\n", idx);
-#endif
-                break;
-            }
-            r++;
-        }
-        if (!r || !r->rom) {
-            // no rom loaded
-            memset(UPPER_ROMS[i], 0xff, ROM_SIZE);
-        }
-    }
-    if (!picorom_loaded) {
-#ifdef DEBUG_CONFIG
-        printf("Failsafe, loading picorom into slot 6\n");
-#endif 
-        memcpy(UPPER_ROMS[6], ROMLIST[0].rom, ROM_SIZE);
+        INSERT_UPPER_ROM(i, config->upper_roms[i]);
     }
     rom7_enable = config->rom7_enable;
     current_config = slot;
@@ -218,17 +206,16 @@ bool __not_in_flash_func(save_config)(int slot)
     uint8_t buf[FLASH_SECTOR_SIZE];
     uint32_t irq_status;
     // copy existing config pages to RAM
-    memcpy(buf, config_pages, sizeof(buf));
+    memcpy(buf, __CONFIG_START, sizeof(buf));
     // update config at slot 'slot'
     config_t *config = (config_t *)(buf+CONFIG_SIZE*slot);
     config->magic = CONFIG_MAGIC;
-    config->ver = VER_MAJOR << 16 + VER_MINOR << 8 + VER_PATCH;
+    config->ver = CONFIG_VER;
     config->rom7_enable = rom7_enable;
-    config->lower_rom_crc = calc_crc32(LOWER_ROM, CRC_SIZE);
+    config->lower_rom = lower_rom;
     for (int i=0;i<NUM_ROM_BANKS;i++) {
-        config->rom_crcs[i] = calc_crc32(UPPER_ROMS[i], CRC_SIZE);
+        config->upper_roms[i] = upper_roms[i];
     }
-    config->crc = calc_crc32(config, sizeof(config)-sizeof(uint32_t));
     // erase and re-save all config
 #ifdef DEBUG_CONFIG
     printf("Erasing config 0x%x 0x%x\n", (uint32_t)__CONFIG_START - XIP_BASE, (size_t)__CONFIG_LEN);
@@ -258,17 +245,21 @@ void __not_in_flash_func(emulate)(void)
         if ((gpio & ROMEN_MASK) == 0) {
             if (gpio & A15_MASK) {
                 if ((rom7_enable == true)|| (rom_bank != 7)) {
+                    // output upper ROM data
                     gpio_put_masked(DATA_BUS_MASK, UPPER_ROMS[rom_bank][gpio&ADDRESS_BUS_MASK] << 14);
                     gpio_set_dir_out_masked(DATA_BUS_MASK);
                 } else {
+                    // set data bus as input (HiZ)
                     gpio_set_dir_in_masked(DATA_BUS_MASK);
                 }
             } else {
+                // output lower ROM data
                 gpio_put_masked(DATA_BUS_MASK, LOWER_ROM[gpio&ADDRESS_BUS_MASK] << 14);
                 gpio_set_dir_out_masked(DATA_BUS_MASK);
 
             }
-        } else {
+        } else {                           
+            // set data bus as input (HiZ)
             gpio_set_dir_in_masked(DATA_BUS_MASK);
         }
     }
@@ -327,6 +318,8 @@ void __not_in_flash_func(handle_latch)(void)
                         list_index = 0;
                         // fall through
                     case CMD_ROMDIR2: // next dir
+                    // TODO 
+                    # if 0
                         if (strlen(ROMLIST[list_index].name)) {
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %s", list_index, ROMLIST[list_index].name);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
@@ -335,6 +328,7 @@ void __not_in_flash_func(handle_latch)(void)
                         } else {
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
                         }
+                    #endif 
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
@@ -457,7 +451,7 @@ void __not_in_flash_func(handle_latch)(void)
                             if (params[0] < 0) params[0] = 0;
                             if (params[1] >= num_upper_roms) params[1] = num_upper_roms-1;
                             if (params[1] < 0) params[1] = 0;
-                            memcpy(UPPER_ROMS[params[0]], ROMLIST[params[1]].rom, ROM_SIZE);
+                            INSERT_UPPER_ROM(params[0], params[1]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             CPC_RELEASE_RESET();
                             break;
@@ -466,7 +460,7 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            memset(UPPER_ROMS[params[0]], 0xff, ROM_SIZE);
+                            INSERT_UPPER_ROM(params[0], -1); // remove ROM
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             CPC_RELEASE_RESET();
                             break;
@@ -501,17 +495,29 @@ void __not_in_flash_func(handle_latch)(void)
     }
 }
 
-rom_index_t *rom_index = (rom_index_t *)__ROM_START;
+rom_index_t *rom_index = (rom_index_t *)__INDEX_START;
 
+void fatal(int flashes) {
+    while(1) {
+        for (int i=0;i<flashes;i++) {
+            gpio_put(PICO_DEFAULT_LED_PIN, 1);
+            sleep_ms(100);
+            gpio_put(PICO_DEFAULT_LED_PIN, 0);
+            sleep_ms(200);   
+        }
+        sleep_ms(500);
+    }
+}
 
 int main() {
 #ifdef DEBUG_CONFIG
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
-    printf("tud_cdc_connected()\n");
-    printf("__FLASH_START 0x%0x __FLASH_LEN 0x%0x \n", __FLASH_START, __FLASH_LEN);
-    printf("__ROM_START 0x%0x __ROM_LEN 0x%0x \n", __ROM_START, __ROM_LEN);
-    printf("__CONFIG_START 0x%0x __CONFIG_LEN 0x%0x \n", __CONFIG_START, __CONFIG_LEN);
+    printf("tud_cdc_connected() %s\n", __TIMESTAMP__);
+    printf("__FLASH_START  0x%08x __FLASH_LEN  0x%08x\n", __FLASH_START, __FLASH_LEN);
+    printf("__INDEX_START  0x%08x __INDEX_LEN  0x%08x\n", __INDEX_START, __INDEX_LEN);
+    printf("__ROM_START    0x%08x __ROM_LEN    0x%08x\n", __ROM_START, __ROM_LEN);
+    printf("__CONFIG_START 0x%08x __CONFIG_LEN 0x%08x\n", __CONFIG_START, __CONFIG_LEN);
 #endif
     gpio_init_mask(FULL_MASK);
     gpio_set_dir_in_masked(FULL_MASK);
@@ -524,66 +530,31 @@ int main() {
 
 #ifdef DEBUG_CONFIG
     printf("rom_index is 0x%0x - listing ROMs\n", rom_index);
-#endif
-    rom_index_t *i = rom_index;
-    int bank = -1;
-    while (i && i->rom_offset) {
-#ifdef DEBUG_CONFIG
-        printf("%s 0x%0x 0x%0x 0x%0x\n", i->name, i->rom_size, i->rom_offset, (void *)rom_index + i->rom_offset);
-#endif
-        /* load a fixed set of ROMS */
-        if (bank == -1) {
-            memcpy(LOWER_ROM, (void *)rom_index + i->rom_offset, ROM_SIZE);
-        } else {
-            memcpy(UPPER_ROMS[bank], (void *)rom_index + i->rom_offset, ROM_SIZE);
+    for (int i=0;i<MAX_ROMS;i++) {
+        rom_index_t *idx = &rom_index[i];
+        if (idx->rom_type != 0xff) {
+            printf("%3d 0x%02x %s 0x%0x\n", i, idx->rom_type, idx->name, (void *)(__ROM_START + 16384*i));
         }
-        bank++;
-        if (bank >= NUM_ROM_BANKS) {
-            break;
-        }
-        i++;
     }
-    while(bank < NUM_ROM_BANKS) {
-        memset(UPPER_ROMS[bank], 0xff, ROM_SIZE);
-        bank++;
-    }
-    rom7_enable = true;
-
-# if 0
-    // count roms, calc crcs
-    for (rom_entry_t *r=LOWER_ROMLIST;r && r->rom;r++) {
-        num_lower_roms++;
-        r->crc = calc_crc32(r->rom, CRC_SIZE);
-    }
-    for (rom_entry_t *r=ROMLIST;r && r->rom;r++) {
-        num_upper_roms++;
-        r->crc = calc_crc32(r->rom, CRC_SIZE);
-    }
-    if (load_config(0)) {
+#endif
+    int c = find_active_config();
+    if (c<0) fatal(1);
+    if (load_config(c)) {
 #ifdef DEBUG_CONFIG
         printf("Config loaded\n");
 #endif
     } else {
 #ifdef DEBUG_CONFIG
-        printf("Config invalid - loading defaults\n");
+        printf("Config invalid\n");
 #endif
-        // memcpy(UPPER_ROMS[0],  BASIC_1_0_ROM, ROM_SIZE);
-        for (int i=1;i<NUM_ROM_BANKS;i++) {
-            memset(UPPER_ROMS[i],  0xff, ROM_SIZE);
-        }
-        // memcpy(LOWER_ROM, OS_464_ROM, OS_464_ROM_len);
-        // memcpy(UPPER_ROMS[6], picorom_rom, ROM_SIZE);
-        rom7_enable = false;
+        fatal(2);
     }
-
-#endif
 
     // overclock - pick the lowest freq that works reliably
     //set_sys_clock_khz(200000, true);
     //set_sys_clock_khz(225000, true);
     set_sys_clock_khz(250000, true);
     multicore_launch_core1(emulate);
-
     uint offset = pio_add_program(pio, &latch_program);
     latch_program_init(pio, sm, offset);
     CPC_RELEASE_RESET();
