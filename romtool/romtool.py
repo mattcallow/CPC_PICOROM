@@ -1,4 +1,4 @@
-#!python3
+#!/bin/env python3
 import csv
 import struct
 import math
@@ -82,14 +82,12 @@ FAMILY_ID = 0xe48bff56 # RP2040
 BLOCK_SIZE = 0x100
 
 
-__INDEX_LEN = 4096
-__ROM_LEN = (MAX_ROMS * 16384)
+__ROM_LEN = 4096 + (MAX_ROMS * 16384)
 __CONFIG_LEN = 4096
 __FLASH_START = 0x10000000
 
-__FLASH_LEN = (2048*1024) - __ROM_LEN - __CONFIG_LEN - __INDEX_LEN
-__INDEX_START = __FLASH_START + __FLASH_LEN
-__ROM_START = __INDEX_START + __INDEX_LEN
+__FLASH_LEN = (2048*1024) - __ROM_LEN - __CONFIG_LEN
+__ROM_START  = __FLASH_START + __FLASH_LEN
 __CONFIG_START = __ROM_START + __ROM_LEN
 
 
@@ -192,7 +190,7 @@ if __name__ == '__main__':
     with open('roms.bin', 'wb') as f:
         f.write(buf.read())
     buf.seek(0)
-    image2uf2(buf, config['OUTPUT']['romfile'], __INDEX_START) # TODO - split index and rOM
+    image2uf2(buf, config['OUTPUT']['romfile'], __ROM_START) 
     
     buf = BytesIO()
     buf.seek(4095)

@@ -1,6 +1,6 @@
 // CPC ROM emulator
 // Matt Callow March 2023
-#define DEBUG_CONFIG
+#undef DEBUG_CONFIG
 #include <string.h>
 #include <stdio.h>
 #include <tusb.h>
@@ -31,8 +31,6 @@ static volatile bool rom7_enable = false;
 // values from the linker
 extern uint32_t __FLASH_START[];
 extern uint32_t __FLASH_LEN[];
-extern uint32_t __INDEX_START[];
-extern uint32_t __INDEX_LEN[];
 extern uint32_t __ROM_START[];
 extern uint32_t __ROM_LEN[];
 extern uint32_t __CONFIG_START[];
@@ -62,7 +60,7 @@ typedef struct {
 
 #define MAX_ROMS 120
 #define INDEX_ENTRY_SIZE sizeof(rom_index_t)
-#define INDEX_SIZE (MAX_ROMS * INDEX_ENTRY_SIZE)
+#define INDEX_SIZE 4096
 #define CONFIG_SIZE sizeof(config_t)
 #define MAX_CONFIG 16
 #define CONFIG_MAGIC 0x7b0
@@ -89,7 +87,7 @@ const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WR
     if (rom_number < 0) { \
         memset(UPPER_ROMS[slot], 0xff, ROM_SIZE);\
     } else {\
-        memcpy(UPPER_ROMS[slot],  __ROM_START + INDEX_SIZE + ROM_SIZE*rom_number, ROM_SIZE);\
+        memcpy(UPPER_ROMS[slot],  (void *)__ROM_START + INDEX_SIZE+ROM_SIZE*rom_number, ROM_SIZE);\
     }\
 } 
 #define INSERT_LOWER_ROM(rom_number) { \
@@ -97,7 +95,7 @@ const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WR
     if (rom_number < 0) { \
         memset(LOWER_ROM, 0xff, ROM_SIZE);\
     } else {\
-        memcpy(LOWER_ROM,  __ROM_START + INDEX_SIZE + ROM_SIZE*rom_number, ROM_SIZE);\
+        memcpy(LOWER_ROM,  (void *)__ROM_START + INDEX_SIZE+ROM_SIZE*rom_number, ROM_SIZE);\
     }\
 } 
 
@@ -495,7 +493,7 @@ void __not_in_flash_func(handle_latch)(void)
     }
 }
 
-rom_index_t *rom_index = (rom_index_t *)__INDEX_START;
+rom_index_t *rom_index = (rom_index_t *)__ROM_START;
 
 void fatal(int flashes) {
     while(1) {
@@ -515,7 +513,6 @@ int main() {
     while (!tud_cdc_connected()) { sleep_ms(100);  }
     printf("tud_cdc_connected() %s\n", __TIMESTAMP__);
     printf("__FLASH_START  0x%08x __FLASH_LEN  0x%08x\n", __FLASH_START, __FLASH_LEN);
-    printf("__INDEX_START  0x%08x __INDEX_LEN  0x%08x\n", __INDEX_START, __INDEX_LEN);
     printf("__ROM_START    0x%08x __ROM_LEN    0x%08x\n", __ROM_START, __ROM_LEN);
     printf("__CONFIG_START 0x%08x __CONFIG_LEN 0x%08x\n", __CONFIG_START, __CONFIG_LEN);
 #endif
@@ -533,7 +530,7 @@ int main() {
     for (int i=0;i<MAX_ROMS;i++) {
         rom_index_t *idx = &rom_index[i];
         if (idx->rom_type != 0xff) {
-            printf("%3d 0x%02x %s 0x%0x\n", i, idx->rom_type, idx->name, (void *)(__ROM_START + 16384*i));
+            printf("%3d 0x%02x %s 0x%0x %x %x %x\n", i, idx->rom_type, idx->name, (void *)__ROM_START+INDEX_SIZE, __ROM_START, INDEX_SIZE, ROM_SIZE);
         }
     }
 #endif
