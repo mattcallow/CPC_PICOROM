@@ -38,6 +38,7 @@ extern uint32_t __CONFIG_LEN[];
 
 
 
+
 #pragma pack(push,1)
 typedef struct {
     uint8_t  rom_type;  // 1
@@ -56,6 +57,9 @@ typedef struct {
 } config_t;
 #pragma pack(pop)
 
+rom_index_t *rom_index = (rom_index_t *)__ROM_START;
+
+
 #define CONFIG_VER 1
 
 #define MAX_ROMS 120
@@ -64,9 +68,6 @@ typedef struct {
 #define CONFIG_SIZE sizeof(config_t)
 #define MAX_CONFIG 16
 #define CONFIG_MAGIC 0x7b0
-
-static int num_lower_roms = 0;
-static int num_upper_roms = 0;
 
 static int upper_roms[NUM_ROM_BANKS];
 static int lower_rom;
@@ -82,12 +83,12 @@ const uint32_t RESET_GPIO = 28;
 const uint32_t RESET_MASK = 1 << RESET_GPIO;
 const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|RESET_MASK;
 
-#define INSERT_UPPER_ROM(slot, rom_number) { \
-    upper_roms[slot] = rom_number; \
+#define INSERT_UPPER_ROM(bank, rom_number) { \
+    upper_roms[bank] = rom_number; \
     if (rom_number < 0) { \
-        memset(UPPER_ROMS[slot], 0xff, ROM_SIZE);\
+        memset(UPPER_ROMS[bank], 0xff, ROM_SIZE);\
     } else {\
-        memcpy(UPPER_ROMS[slot],  (void *)__ROM_START + INDEX_SIZE+ROM_SIZE*rom_number, ROM_SIZE);\
+        memcpy(UPPER_ROMS[bank],  (void *)__ROM_START + INDEX_SIZE+ROM_SIZE*rom_number, ROM_SIZE);\
     }\
 } 
 #define INSERT_LOWER_ROM(rom_number) { \
@@ -109,52 +110,6 @@ static inline void CPC_RELEASE_RESET()
     gpio_set_dir(RESET_GPIO, GPIO_IN);
 }
 
-#define CRC32_INIT                  ((uint32_t)-1l)
-
-static uint8_t sink;
-
-// use a DMA channel to calc the CRC
-uint32_t calc_crc32(const void* buf, uint32_t size)
-{
-    // Get a free channel, panic() if there are none
-    int chan = dma_claim_unused_channel(true);
-
-    // 8 bit transfers. The read address increments after each transfer but
-    // the write address remains unchanged pointing to the dummy destination.
-    // No DREQ is selected, so the DMA transfers as fast as it can.
-    dma_channel_config c = dma_channel_get_default_config(chan);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
-    channel_config_set_read_increment(&c, true);
-    channel_config_set_write_increment(&c, false);
-
-    // (bit-reverse) CRC32 specific sniff set-up
-    channel_config_set_sniff_enable(&c, true);
-    dma_sniffer_set_data_accumulator(CRC32_INIT);
-    dma_sniffer_enable(chan, DMA_SNIFF_CTRL_CALC_VALUE_CRC32, true);
-    hw_set_bits(&dma_hw->sniff_ctrl,
-		    (DMA_SNIFF_CTRL_OUT_INV_BITS | DMA_SNIFF_CTRL_OUT_REV_BITS));
-	
-    // dma_hw->sniff_data = 0xffffffff;
-    dma_channel_configure(
-        chan,          // Channel to be configured
-        &c,            // The configuration we just created
-        &sink,     // The (unchanging) write address
-        buf,           // The initial read address
-        size,     // Total number of transfers inc. appended crc; each is 1 byte
-        true           // Start immediately.
-    );
-
-    // We could choose to go and do something else whilst the DMA is doing its
-    // thing. In this case the processor has nothing else to do, so we just
-    // wait for the DMA to finish.
-    dma_channel_wait_for_finish_blocking(chan);
-
-    uint32_t crc = dma_sniffer_get_data_accumulator();
-    dma_channel_unclaim(chan);
-    return crc;
-}
-
-//uint8_t *config_pages = (uint8_t *) (__CONFIG_START);
 
 int current_config = -1;
 
@@ -272,12 +227,10 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_ROM7 0xFB
 #define CMD_ROMDIR1		0x1
 #define CMD_ROMDIR2		0x2
-#define CMD_464 3
-#define CMD_6128 4
-#define CMD_664 5
-#define CMD_FW31 6
 #define CMD_ROMLIST1	0x7
 #define CMD_ROMLIST2	0x8
+#define CMD_CFGDIR1     0x09
+#define CMD_CFGDIR2     0x0a
 
 #define CMD_ROMIN 0x10
 #define CMD_ROMOUT 0x11
@@ -289,6 +242,8 @@ void __not_in_flash_func(handle_latch)(void)
     int num_params = 0;
     int params[4];
     char buf[32];
+    rom_index_t *idx;
+    config_t *cfg;
     while(1) {
         uint8_t latch =  pio_sm_get_blocking(pio, sm)  & 0xff;
         // printf("l:%d c:%d rb:%d\n", latch, cmd, rom_bank);
@@ -316,50 +271,20 @@ void __not_in_flash_func(handle_latch)(void)
                         list_index = 0;
                         // fall through
                     case CMD_ROMDIR2: // next dir
-                    // TODO 
-                    # if 0
-                        if (strlen(ROMLIST[list_index].name)) {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %s", list_index, ROMLIST[list_index].name);
-                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
-                            UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                        idx = &rom_index[list_index];
+                        if (idx->rom_type != 0xff) {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%3d: %s", list_index, idx->name);
+                        } else {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%3d: -empty-", list_index);
+                        }
+                        UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                        UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                        if (list_index < MAX_ROMS) {
                             list_index++;
                         } else {
-                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
                         }
-                    #endif 
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        cmd = 0;
-                        break;
-                    case 3: // switch to Basic 1.0
-                        CPC_ASSERT_RESET();
-                        // memcpy(UPPER_ROMS[0], BASIC_1_0_ROM, ROM_SIZE);
-                        // memcpy(LOWER_ROM, OS_464_ROM, ROM_SIZE);
-                        UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        CPC_RELEASE_RESET();
-                        cmd = 0;
-                        break;
-                    case 4: // switch to Basic 1.1
-                        CPC_ASSERT_RESET();
-                        // memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
-                        // memcpy(LOWER_ROM, OS_6128_ROM, ROM_SIZE);
-                        UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        CPC_RELEASE_RESET();
-                        cmd = 0;
-                        break;
-                    case 5: // switch to 664 mode
-                        CPC_ASSERT_RESET();
-                        // memcpy(UPPER_ROMS[0], BASIC_664_ROM, ROM_SIZE);
-                        // memcpy(LOWER_ROM, OS_664_ROM, ROM_SIZE);
-                        UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        CPC_RELEASE_RESET();
-                        cmd = 0;
-                        break;
-                    case CMD_FW31:
-                        CPC_ASSERT_RESET();
-                        // memcpy(UPPER_ROMS[0], BASIC_1_1_ROM, ROM_SIZE);
-                        // memcpy(LOWER_ROM, FW315EN_ROM, ROM_SIZE);
-                        UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        CPC_RELEASE_RESET();
                         cmd = 0;
                         break;
                     case CMD_ROMLIST1: 
@@ -415,10 +340,31 @@ void __not_in_flash_func(handle_latch)(void)
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
-                    case CMD_ROMIN: // Load ROM into slot
+                    case CMD_CFGDIR1: // list config
+                        list_index = 0;
+                        cfg = (config_t *)__CONFIG_START;
+                        // fall through
+                    case CMD_CFGDIR2: // next config
+                        if (cfg->magic == CONFIG_MAGIC && cfg->ver == CONFIG_VER) {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d:%c%s", list_index, cfg->active?'*':' ', cfg->desc);
+                        } else {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: -unused-", list_index);
+                        }
+                        UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                        UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                        if (list_index < MAX_CONFIG) {
+                            list_index++;
+                            cfg++;
+                        } else {
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
+                        }
+                        UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        cmd = 0;
+                        break;                        
+                    case CMD_ROMIN: // Load ROM into bank
                         num_params = 2;
                         break;
-                    case CMD_ROMOUT: // unload ROM from slot
+                    case CMD_ROMOUT: // unload ROM from bank
                     case CMD_LED: // LED
                     case CMD_CFGLOAD:
                     case CMD_CFGSAVE:
@@ -447,7 +393,7 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMLOAD,%d, %d", params[0], params[1]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            if (params[1] >= num_upper_roms) params[1] = num_upper_roms-1;
+                            if (params[1] >= MAX_ROMS) params[1] = MAX_ROMS-1;
                             if (params[1] < 0) params[1] = 0;
                             INSERT_UPPER_ROM(params[0], params[1]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
@@ -493,7 +439,6 @@ void __not_in_flash_func(handle_latch)(void)
     }
 }
 
-rom_index_t *rom_index = (rom_index_t *)__ROM_START;
 
 void fatal(int flashes) {
     while(1) {

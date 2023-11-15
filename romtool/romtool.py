@@ -76,7 +76,7 @@ struct UF2_Block {
 '''
 
 INDEX_SIZE=4096
-SLOT_SIZE=16384
+BANK_SIZE=16384
 MAX_ROMS=120
 FAMILY_ID = 0xe48bff56 # RP2040
 BLOCK_SIZE = 0x100
@@ -134,7 +134,7 @@ def roms2image(romdir, romlist, out):
         rom=int(rom)
         if rom >= MAX_ROMS:
             raise ValueError('max ROM number is is %d' % (MAX_ROMS - 1))
-        offset = INDEX_SIZE + SLOT_SIZE * rom
+        offset = INDEX_SIZE + BANK_SIZE * rom
         out.seek(offset)
         path = os.path.join(romdir, filename)
         if zipfile.is_zipfile(path):
@@ -174,9 +174,9 @@ def config2image(config, out):
                   CONFIG_MAGIC,
                   CONFIG_VERSION,
                   config[section].getint('ACTIVE', 0),
-                  1 if config[section].getint('SLOT7', -1) >=0 else 0,
+                  1 if config[section].getint('BANK7', -1) >=0 else 0,
                   int(config[section].get('LOWER', -1)),
-                  *[config[section].getint(f'SLOT%d' % slot, -1) for slot in range(12)],
+                  *[config[section].getint(f'BANK%d' % slot, -1) for slot in range(12)],
                   bytes(config[section]['DESCRIPTION'],'ascii'))
         out.write(cfg)
 

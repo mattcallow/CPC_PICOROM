@@ -1,7 +1,7 @@
 ; Pico ROM control ROM
 ; 
-ver_major		EQU 1
-ver_minor		EQU 2
+ver_major		EQU 2
+ver_minor		EQU 0
 ver_patch		EQU 0
 TXT_OUTPUT: 	EQU $BB5A
 KM_WAIT_KEY:	EQU $BB18
@@ -19,6 +19,8 @@ CMD_664:		EQU $5
 CMD_FW31:		EQU $6
 CMD_ROMLIST1	EQU $7
 CMD_ROMLIST2	EQU $8
+CMD_CFGDIR1		EQU $9
+CMD_CFGDIR2		EQU $A
 CMD_ROMIN:		EQU $10
 CMD_ROMOUT:		EQU $11
 
@@ -32,10 +34,7 @@ CMD_ROMOUT:		EQU $11
 		jp BOOT
 		jp LED
 		jp ROMDIR
-		jp GO_464
-		jp GO_664
-		jp GO_6128
-		jp GO_FW31
+		jp CFGDIR
 		jp ROMIN
 		jp ROMOUT
 		jp ROMLIST
@@ -48,10 +47,7 @@ NAME_TABLE:
 		defm  "PICOLOA", 'D'+128
 		defm  "LE", 'D'+128
 		defm  "ROMDI", 'R'+128
-		defm  "CPC46", '4'+128
-		defm  "CPC66", '4'+128
-		defm  "CPC612", '8'+128
-		defm  "FW3", '1'+128
+		defm  "CFGDI", 'R'+128
 		defm  "ROMI", 'N'+128
 		defm  "ROMOU", 'T'+128
 		defm  "ROMLIS",'T'+128
@@ -156,10 +152,7 @@ CFGLOAD:	CMD_1P CMD_CFGLOAD, IP_MSG
 ROM7:		CMD_1P CMD_ROM7, IP_MSG
 
 BOOT:		CMD_0P_NOWAIT CMD_PICOLOAD
-GO_464: 	CMD_0P_NOWAIT CMD_464
-GO_664: 	CMD_0P_NOWAIT CMD_664
-GO_6128: 	CMD_0P_NOWAIT CMD_6128
-GO_FW31: 	CMD_0P_NOWAIT CMD_FW31
+CFGDIR: 	LIST_COMMAND CMD_CFGDIR1, CMD_CFGDIR2
 ROMDIR:		LIST_COMMAND CMD_ROMDIR1, CMD_ROMDIR2
 ROMLIST:	LIST_COMMAND CMD_ROMLIST1, CMD_ROMLIST2
 
@@ -182,11 +175,11 @@ RI_USAGE:
 RI_DONE:
 		ret
 RI_U_MSG:
-		defm  " Usage |ROMIN,<ROM SLOT>,<ROM Number>",0x0d,0x0a,0x0d,0x0a,0x00
+		defm  " Usage |ROMIN,<ROM BANK>,<ROM Number>",0x0d,0x0a,0x0d,0x0a,0x00
 
 ROMOUT:		CMD_1P CMD_ROMOUT, RO_U_MSG
 RO_U_MSG:
-		defm  " Usage |ROMOUT,<ROM SLOT>",0x0d,0x0a,0x0d,0x0a,0x00
+		defm  " Usage |ROMOUT,<ROM BANK>",0x0d,0x0a,0x0d,0x0a,0x00
 
 
 cr_nl:
