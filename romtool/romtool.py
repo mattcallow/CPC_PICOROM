@@ -36,16 +36,16 @@ Flash Layout
 Config block (4K)
 
 Each config entry is 64 bytes:
-NUM_ROM_BANKS = 12
+NUM_ROM_BANKS = 14
 typedef struct {
     uint16_t magic;                     // 2
     uint16_t ver;                       // 2
     uint8_t active;                     // 1
     uint8_t rom7_enable;                // 1
     int8_t lower_rom;                  // 1
-    int8_t upper_roms[NUM_ROM_BANKS];  // 12
+    int8_t upper_roms[NUM_ROM_BANKS];  // 14
     char desc[33];                      // 33
-    char spare[12];                      // 12
+    char spare[10];                      // 10
 } config_t;
 
 Therefore, 16 configs are possible
@@ -77,6 +77,7 @@ struct UF2_Block {
 
 INDEX_SIZE=4096
 BANK_SIZE=16384
+NUM_ROM_BANKS=14
 MAX_ROMS=120
 FAMILY_ID = 0xe48bff56 # RP2040
 BLOCK_SIZE = 0x100
@@ -121,10 +122,12 @@ def roms2image(romdir, romlist, out):
     index = {}
     for rom in romlist.keys():
         v=romlist[rom].split(',')
-        if len(v) < 2:
+        if len(v) < 1:
             continue
         filename=v[0]
-        name = v[1]
+        name = None
+        if len(v) > 1:
+            name = v[1]
         type = None
         if len(v) >2:
             if v[2].upper() == 'L':
@@ -149,6 +152,15 @@ def roms2image(romdir, romlist, out):
         if type is None:
             # Get rom type from the image file
             type = buf[0]
+        if name is None:
+            # get ROM name from image file
+            name_table = buf[4] + 256*buf[5] - 0xc000
+            name = ""
+            while buf[name_table] < 128:
+                name += chr(buf[name_table] & 127)
+                name_table += 1
+            name += chr(buf[name_table] & 127)
+        name = name.strip()
         out.write(buf)
         size = len(buf)
         print("Added rom #%2d at offset 0x%08x: type 0x%02x, size %s %s" % (rom, offset, type, size, name))                
@@ -170,13 +182,13 @@ def config2image(config, out):
             continue
         print("Adding %s" % section)
 
-        cfg = struct.pack('<HHBBb12b32sx12x', 
+        cfg = struct.pack('<HHBBb14b32sx10x', 
                   CONFIG_MAGIC,
                   CONFIG_VERSION,
                   config[section].getint('ACTIVE', 0),
                   1 if config[section].getint('BANK7', -1) >=0 else 0,
                   int(config[section].get('LOWER', -1)),
-                  *[config[section].getint(f'BANK%d' % slot, -1) for slot in range(12)],
+                  *[config[section].getint(f'BANK%d' % slot, -1) for slot in range(NUM_ROM_BANKS)],
                   bytes(config[section]['DESCRIPTION'],'ascii'))
         out.write(cfg)
 
@@ -202,5 +214,15 @@ if __name__ == '__main__':
         f.write(buf.read())
     buf.seek(0)
     image2uf2(buf, config['OUTPUT']['configfile'], __CONFIG_START)
+
+    if 'combined' in config['OUTPUT']:
+        with open(config['OUTPUT']['combined'], 'wb') as f:
+            fi = open(config['OUTPUT']['romfile'], 'rb')
+            f.write(fi.read())
+            fi.close()
+            fi = open(config['OUTPUT']['configfile'], 'rb')
+            f.write(fi.read())
+            fi.close()
+
 
 

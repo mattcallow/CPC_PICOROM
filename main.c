@@ -9,6 +9,8 @@
 #include "pico/bootrom.h"
 #include "hardware/vreg.h"
 #include "hardware/pio.h"
+#include "hardware/structs/xip_ctrl.h"
+#include "hardware/regs/xip.h"
 #include "hardware/flash.h"
 #include "hardware/dma.h"
 #include "latch.pio.h"
@@ -17,13 +19,16 @@
 #define VER_MAJOR 2
 #define VER_MINOR 0
 #define VER_PATCH 0
-// not enough RAM for 16 banks, but could do 12
-#define NUM_ROM_BANKS 12
+// not enough RAM for 16 banks
+#define NUM_ROM_BANKS 14
 #define ROM_SIZE 16384
-// don't CRC that last page of ROM as the PicoROM modifies this
-#define CRC_SIZE (ROM_SIZE - 0x100)
 // RAM copies of the ROMs
-static uint8_t LOWER_ROM[ROM_SIZE];
+#undef USE_XIP_CACHE_AS_RAM
+#ifdef USE_XIP_CACHE_AS_RAM
+static uint8_t *LOWER_ROM = (uint8_t *)0x15000000;
+#else
+static uint8_t  LOWER_ROM[ROM_SIZE];
+#endif
 static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
 static volatile uint8_t rom_bank = 0;
 static volatile bool rom7_enable = false;
@@ -35,8 +40,6 @@ extern uint32_t __ROM_START[];
 extern uint32_t __ROM_LEN[];
 extern uint32_t __CONFIG_START[];
 extern uint32_t __CONFIG_LEN[];
-
-
 
 
 #pragma pack(push,1)
@@ -53,7 +56,7 @@ typedef struct {
     int8_t lower_rom;
     int8_t upper_roms[NUM_ROM_BANKS];
     char desc[33];
-    char spare[12];
+    char spare[10];
 } config_t;
 #pragma pack(pop)
 
@@ -61,7 +64,6 @@ rom_index_t *rom_index = (rom_index_t *)__ROM_START;
 
 
 #define CONFIG_VER 1
-
 #define MAX_ROMS 120
 #define INDEX_ENTRY_SIZE sizeof(rom_index_t)
 #define INDEX_SIZE 4096
@@ -100,16 +102,8 @@ const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WR
     }\
 } 
 
-static inline void CPC_ASSERT_RESET()
-{
-    gpio_set_dir(RESET_GPIO, GPIO_OUT);
-}
-
-static inline void CPC_RELEASE_RESET()
-{
-    gpio_set_dir(RESET_GPIO, GPIO_IN);
-}
-
+#define CPC_ASSERT_RESET()    gpio_set_dir(RESET_GPIO, GPIO_OUT)
+#define CPC_RELEASE_RESET()   gpio_set_dir(RESET_GPIO, GPIO_IN)
 
 int current_config = -1;
 
@@ -154,14 +148,15 @@ bool __not_in_flash_func(load_config)(int slot)
     return true;
 }
 
+static uint8_t flash_buf[FLASH_SECTOR_SIZE];
+
 bool __not_in_flash_func(save_config)(int slot)
 {
-    uint8_t buf[FLASH_SECTOR_SIZE];
     uint32_t irq_status;
     // copy existing config pages to RAM
-    memcpy(buf, __CONFIG_START, sizeof(buf));
+    memcpy(flash_buf, __CONFIG_START, sizeof(flash_buf));
     // update config at slot 'slot'
-    config_t *config = (config_t *)(buf+CONFIG_SIZE*slot);
+    config_t *config = (config_t *)(flash_buf+CONFIG_SIZE*slot);
     config->magic = CONFIG_MAGIC;
     config->ver = CONFIG_VER;
     config->rom7_enable = rom7_enable;
@@ -180,7 +175,7 @@ bool __not_in_flash_func(save_config)(int slot)
     printf("region erased\n");
 #endif
     irq_status = save_and_disable_interrupts();
-    flash_range_program((uint32_t)__CONFIG_START - XIP_BASE, buf, (size_t)__CONFIG_LEN);
+    flash_range_program((uint32_t)__CONFIG_START - XIP_BASE, flash_buf, (size_t)__CONFIG_LEN);
     restore_interrupts(irq_status);
 #ifdef DEBUG_CONFIG
     printf("config stored\n");
@@ -453,6 +448,11 @@ void fatal(int flashes) {
 }
 
 int main() {
+    #ifdef USE_XIP_CACHE_AS_RAM
+
+    // disable XIP cache - this frees up the cache RAM for variable storage
+    hw_clear_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_EN_BITS);
+    #endif
 #ifdef DEBUG_CONFIG
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
