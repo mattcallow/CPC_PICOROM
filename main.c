@@ -311,13 +311,15 @@ void __not_in_flash_func(handle_latch)(void)
                             uint8_t major = UPPER_ROMS[list_index][1];
                             uint8_t minor = UPPER_ROMS[list_index][2];
                             uint8_t patch = UPPER_ROMS[list_index][3];
-                            if (type < 3 || type == 0x80) {
+                            if (type < 2 || type == 0x80) {
                                 uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
                                 int i=0;
                                 do {
                                     buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
                                 } while(i <31 && UPPER_ROMS[list_index][name_table+i++]< 0x80);
                                 buf[i] = 0;
+                            } else if (type == 2) {
+                                strcpy(buf, "-extension ROM- ");
                             } else {
                                 strcpy(buf, " -Not present-  ");
                                 major = 0;

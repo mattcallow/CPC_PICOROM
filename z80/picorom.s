@@ -37,6 +37,7 @@ CMD_ROMOUT:		EQU $11
 		jp CFGLOAD
 		jp CFGSAVE
 		jp CFGDEF
+		jp ROMLIST		; ROMS is an alias for ROMLIST
 
 NAME_TABLE:	
 		defm  "PICO RO",'M'+128
@@ -50,6 +51,8 @@ NAME_TABLE:
 		defm  "CFGLOA",'D'+128
 		defm  "CFGSAV",'E'+128
 		defm  "CFGDE", 'F'+128
+		defm  "ROM", 'S'+128
+
 		defb    0
 INIT:	
 		push HL

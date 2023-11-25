@@ -142,8 +142,8 @@ def roms2image(romdir, romlist, out):
         path = os.path.join(romdir, filename)
         if zipfile.is_zipfile(path):
             z = zipfile.ZipFile(path)
-            rom_name = [n for n in z.namelist() if n.upper().endswith(".ROM")][0]
-            buf = z.read(rom_name)
+            filename = [n for n in z.namelist() if n.upper().endswith(".ROM")][0]
+            buf = z.read(filename)
             z.close()
         else:
             f = open(path, 'rb')
@@ -153,13 +153,17 @@ def roms2image(romdir, romlist, out):
             # Get rom type from the image file
             type = buf[0]
         if name is None:
-            # get ROM name from image file
-            name_table = buf[4] + 256*buf[5] - 0xc000
-            name = ""
-            while buf[name_table] < 128:
+            # get ROM name from image file, if the rom looks valid (i.e JP instruction at byte 6)
+            name_table = buf[4] + 256*buf[5]
+            if buf[6] == 0xc3 and name_table > 0xc000 and name_table <= 0xffff:
+                name_table -= 0xc000
+                name = ""
+                while buf[name_table] < 128:
+                    name += chr(buf[name_table] & 127)
+                    name_table += 1
                 name += chr(buf[name_table] & 127)
-                name_table += 1
-            name += chr(buf[name_table] & 127)
+            else:
+                name = filename
         name = name.strip()
         out.write(buf)
         size = len(buf)
