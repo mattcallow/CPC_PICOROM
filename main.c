@@ -150,19 +150,31 @@ bool __not_in_flash_func(load_config)(int slot)
 
 static uint8_t flash_buf[FLASH_SECTOR_SIZE];
 
-bool __not_in_flash_func(save_config)(int slot)
+bool __not_in_flash_func(save_config)(int slot, bool make_active)
 {
     uint32_t irq_status;
     // copy existing config pages to RAM
     memcpy(flash_buf, __CONFIG_START, sizeof(flash_buf));
     // update config at slot 'slot'
-    config_t *config = (config_t *)(flash_buf+CONFIG_SIZE*slot);
-    config->magic = CONFIG_MAGIC;
-    config->ver = CONFIG_VER;
-    config->rom7_enable = rom7_enable;
-    config->lower_rom = lower_rom;
-    for (int i=0;i<NUM_ROM_BANKS;i++) {
-        config->upper_roms[i] = upper_roms[i];
+    config_t *config;
+    if (make_active) {
+        config = (config_t *)(flash_buf);
+        for (int i=0;i<MAX_CONFIG;i++, config++) {
+            if (i == slot) {
+                config->active = 1;
+            } else {
+                config->active = 0;
+            }
+        }
+    } else {
+        config = (config_t *)(flash_buf+CONFIG_SIZE*slot);
+        config->magic = CONFIG_MAGIC;
+        config->ver = CONFIG_VER;
+        config->rom7_enable = rom7_enable;
+        config->lower_rom = lower_rom;
+        for (int i=0;i<NUM_ROM_BANKS;i++) {
+            config->upper_roms[i] = upper_roms[i];
+        }
     }
     // erase and re-save all config
 #ifdef DEBUG_CONFIG
@@ -220,12 +232,14 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_CFGLOAD 0xFD
 #define CMD_CFGSAVE 0xFC
 #define CMD_ROM7 0xFB
+#define CMD_CFGDEF 0xFA
+
 #define CMD_ROMDIR1		0x1
 #define CMD_ROMDIR2		0x2
 #define CMD_ROMLIST1	0x7
 #define CMD_ROMLIST2	0x8
-#define CMD_CFGDIR1     0x09
-#define CMD_CFGDIR2     0x0a
+#define CMD_CFGLIST1     0x09
+#define CMD_CFGLIST2     0x0a
 
 #define CMD_ROMIN 0x10
 #define CMD_ROMOUT 0x11
@@ -267,17 +281,17 @@ void __not_in_flash_func(handle_latch)(void)
                         // fall through
                     case CMD_ROMDIR2: // next dir
                         idx = &rom_index[list_index];
-                        if (idx->rom_type != 0xff) {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%3d: %s", list_index, idx->name);
-                        } else {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%3d: -empty-", list_index);
-                        }
-                        UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
-                        UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
-                        if (list_index < MAX_ROMS) {
+                        while (idx->rom_type == 0xff && list_index < MAX_ROMS) {
                             list_index++;
-                        } else {
+                            idx = &rom_index[list_index];
+                        }
+                        if (list_index == MAX_ROMS) {
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
+                        } else {
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%3d: %s", list_index, idx->name);
+                            list_index++;
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                         }
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
@@ -335,11 +349,11 @@ void __not_in_flash_func(handle_latch)(void)
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
-                    case CMD_CFGDIR1: // list config
+                    case CMD_CFGLIST1: // list config
                         list_index = 0;
                         cfg = (config_t *)__CONFIG_START;
                         // fall through
-                    case CMD_CFGDIR2: // next config
+                    case CMD_CFGLIST2: // next config
                         if (cfg->magic == CONFIG_MAGIC && cfg->ver == CONFIG_VER) {
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d:%c%s", list_index, cfg->active?'*':' ', cfg->desc);
                         } else {
@@ -364,6 +378,7 @@ void __not_in_flash_func(handle_latch)(void)
                     case CMD_CFGLOAD:
                     case CMD_CFGSAVE:
                     case CMD_ROM7:
+                    case CMD_CFGDEF:
                         num_params = 1;
                         break;
                     case CMD_PICOLOAD:
@@ -405,7 +420,7 @@ void __not_in_flash_func(handle_latch)(void)
                             break;
                         case CMD_CFGSAVE:
                             // TODO check bounds
-                            save_config(params[0]);
+                            save_config(params[0], false);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break; 
                         case CMD_CFGLOAD:
@@ -426,7 +441,16 @@ void __not_in_flash_func(handle_latch)(void)
                             rom7_enable = params[0]!=0;
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
-                            break;                        
+                            break;     
+                        case CMD_CFGDEF:
+                            // TODO check bounds
+                            #ifdef DEBUG_CONFIG
+                            printf("active,%d latch=%d num_params=%d\n", params[0], latch, num_params);
+                            #endif
+                            save_config(params[0], true);
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            break;                      
                     }
                     cmd = 0;
                 }
@@ -448,11 +472,10 @@ void fatal(int flashes) {
 }
 
 int main() {
-    #ifdef USE_XIP_CACHE_AS_RAM
-
+#ifdef USE_XIP_CACHE_AS_RAM
     // disable XIP cache - this frees up the cache RAM for variable storage
     hw_clear_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_EN_BITS);
-    #endif
+#endif
 #ifdef DEBUG_CONFIG
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
