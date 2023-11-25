@@ -6,7 +6,6 @@ z80/picorom.map
 z80/picorom.o
 z80/picorom.rom
 z80/picorom.rom.h
-romtool/roms.bin
-romtool/roms.uf2
-romtool/config.bin
+romtool/*.bin
+romtool/*.uf2
 .vscode/*
