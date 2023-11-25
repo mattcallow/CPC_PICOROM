@@ -9,4 +9,4 @@ z80/picorom.rom.h
 romtool/roms.bin
 romtool/roms.uf2
 romtool/config.bin
-.vscode/settings.json
+.vscode/*

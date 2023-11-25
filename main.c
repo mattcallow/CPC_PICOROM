@@ -31,7 +31,6 @@ static uint8_t  LOWER_ROM[ROM_SIZE];
 #endif
 static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
 static volatile uint8_t rom_bank = 0;
-static volatile bool rom7_enable = false;
 
 // values from the linker
 extern uint32_t __FLASH_START[];
@@ -52,7 +51,7 @@ typedef struct {
     uint16_t magic;
     uint16_t ver;
     uint8_t active;
-    uint8_t rom7_enable;
+    uint8_t spare2;
     int8_t lower_rom;
     int8_t upper_roms[NUM_ROM_BANKS];
     char desc[33];
@@ -143,7 +142,6 @@ bool __not_in_flash_func(load_config)(int slot)
 #endif
         INSERT_UPPER_ROM(i, config->upper_roms[i]);
     }
-    rom7_enable = config->rom7_enable;
     current_config = slot;
     return true;
 }
@@ -170,7 +168,6 @@ bool __not_in_flash_func(save_config)(int slot, bool make_active)
         config = (config_t *)(flash_buf+CONFIG_SIZE*slot);
         config->magic = CONFIG_MAGIC;
         config->ver = CONFIG_VER;
-        config->rom7_enable = rom7_enable;
         config->lower_rom = lower_rom;
         for (int i=0;i<NUM_ROM_BANKS;i++) {
             config->upper_roms[i] = upper_roms[i];
@@ -204,7 +201,7 @@ void __not_in_flash_func(emulate)(void)
         uint8_t data;
         if ((gpio & ROMEN_MASK) == 0) {
             if (gpio & A15_MASK) {
-                if ((rom7_enable == true)|| (rom_bank != 7)) {
+                if (upper_roms[rom_bank] >= 0) {
                     // output upper ROM data
                     gpio_put_masked(DATA_BUS_MASK, UPPER_ROMS[rom_bank][gpio&ADDRESS_BUS_MASK] << 14);
                     gpio_set_dir_out_masked(DATA_BUS_MASK);
@@ -231,7 +228,6 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_LED 0xfe
 #define CMD_CFGLOAD 0xFD
 #define CMD_CFGSAVE 0xFC
-#define CMD_ROM7 0xFB
 #define CMD_CFGDEF 0xFA
 
 #define CMD_ROMDIR1		0x1
@@ -315,19 +311,15 @@ void __not_in_flash_func(handle_latch)(void)
                             uint8_t major = UPPER_ROMS[list_index][1];
                             uint8_t minor = UPPER_ROMS[list_index][2];
                             uint8_t patch = UPPER_ROMS[list_index][3];
-                            if ((type < 3 || type == 0x80) && (list_index !=7 || rom7_enable)) {
+                            if (type < 3 || type == 0x80) {
                                 uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
                                 int i=0;
                                 do {
                                     buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
-                                } while(UPPER_ROMS[list_index][name_table+i++]< 0x80);
+                                } while(i <31 && UPPER_ROMS[list_index][name_table+i++]< 0x80);
                                 buf[i] = 0;
                             } else {
-                                if (list_index == 7 && !rom7_enable) {
-                                    strcpy(buf, " - Disabled  -  ");
-                                } else {
-                                    strcpy(buf, " -Not present-  ");
-                                }
+                                strcpy(buf, " -Not present-  ");
                                 major = 0;
                                 minor = 0;
                                 patch = 0;
@@ -377,7 +369,6 @@ void __not_in_flash_func(handle_latch)(void)
                     case CMD_LED: // LED
                     case CMD_CFGLOAD:
                     case CMD_CFGSAVE:
-                    case CMD_ROM7:
                     case CMD_CFGDEF:
                         num_params = 1;
                         break;
@@ -436,12 +427,6 @@ void __not_in_flash_func(handle_latch)(void)
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break;
-                        case CMD_ROM7:
-                            //printf("LED,%d latch=%d num_params=%d\n", params[0], latch, num_params);
-                            rom7_enable = params[0]!=0;
-                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
-                            UPPER_ROMS[rom_bank][RESP_BUF]++;
-                            break;     
                         case CMD_CFGDEF:
                             // TODO check bounds
                             #ifdef DEBUG_CONFIG

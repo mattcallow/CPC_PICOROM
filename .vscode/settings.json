@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "*.s": "plaintext"
+        "*.s": "plaintext",
+        "flash.h": "c",
+        "xip.h": "c"
     }
 }

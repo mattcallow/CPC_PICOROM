@@ -41,7 +41,7 @@ typedef struct {
     uint16_t magic;                     // 2
     uint16_t ver;                       // 2
     uint8_t active;                     // 1
-    uint8_t rom7_enable;                // 1
+    uint8_t spare2;                     // 1
     int8_t lower_rom;                  // 1
     int8_t upper_roms[NUM_ROM_BANKS];  // 14
     char desc[33];                      // 33
@@ -182,11 +182,10 @@ def config2image(config, out):
             continue
         print("Adding %s" % section)
 
-        cfg = struct.pack('<HHBBb14b32sx10x', 
+        cfg = struct.pack('<HHBxb14b32sx10x', 
                   CONFIG_MAGIC,
                   CONFIG_VERSION,
                   config[section].getint('ACTIVE', 0),
-                  1 if config[section].getint('BANK7', -1) >=0 else 0,
                   int(config[section].get('LOWER', -1)),
                   *[config[section].getint(f'BANK%d' % slot, -1) for slot in range(NUM_ROM_BANKS)],
                   bytes(config[section]['DESCRIPTION'],'ascii'))
