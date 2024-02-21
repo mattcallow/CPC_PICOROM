@@ -7,5 +7,4 @@ z80/picorom.o
 z80/picorom.rom
 z80/picorom.rom.h
 romtool/*.bin
-romtool/*.uf2
 .vscode/*

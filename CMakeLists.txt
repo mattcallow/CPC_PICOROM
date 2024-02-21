@@ -51,3 +51,8 @@ pico_add_extra_outputs(cpc_rom_emulator)
 # pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
 # target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
 # pico_set_boot_stage2(cpc_rom_emulator slower_boot2)
+
+# Make a copy of the firmware file
+add_custom_command(TARGET cpc_rom_emulator POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy cpc_rom_emulator.uf2  ../firmware/cpc_rom_emulator.uf2
+)
