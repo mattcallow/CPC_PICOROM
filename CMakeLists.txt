@@ -24,14 +24,14 @@ pico_set_linker_script(cpc_rom_emulator ${CMAKE_SOURCE_DIR}/memmap_custom.ld)
 
 pico_generate_pio_header(cpc_rom_emulator ${CMAKE_CURRENT_LIST_DIR}/latch.pio)
 
-add_custom_command(OUTPUT "z80/picorom.rom.h"
+add_custom_command(OUTPUT "z80/picorom.rom"
 	COMMAND "make"
     WORKING_DIRECTORY "../z80"
 	DEPENDS z80/picorom.s
 	)
 
 add_custom_target(generate_rom ALL
-    DEPENDS "z80/picorom.rom.h")
+    DEPENDS "z80/picorom.rom")
 
 # Add pico_stdlib library which aggregates commonly used features
 target_link_libraries(cpc_rom_emulator 
