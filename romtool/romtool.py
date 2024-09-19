@@ -95,6 +95,7 @@ __CONFIG_START = __ROM_START + __ROM_LEN
 
 
 def image2uf2(infile, outfile, start_address):
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
     blockno = 0
     target = start_address
     print("Start address is 0x%08x" % start_address)
