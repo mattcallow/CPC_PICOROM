@@ -63,16 +63,14 @@ There is a CPC ROM which provides a control over the ROM emulator.
 * PICOLOAD - reboot the PICO into bootloader mode
 * LED,n - Control the PICO LED n=1 for on, n=0 for off
 * ROMDIR - list the available ROMS
-* CPC464 - Load 464 ROMS
-* CPC664 - Load 664 ROMS
-* CPC6128 - Load 6128 ROMS
-* FW31 - Load FW31 ROMS
-* ROMIN,n,m - Load ROM m into a slot n
+* CFGLIST - list available configs
+* ROMIN,n,m - Insert ROM m into a slot n
 * ROMOUT,n - Remove ROM from a slot n
 * ROMLIST - List ROM slots
 * CFGLOAD,n - Load a ROM configuration from config slot n
 * CFGSAVE,n - Save current ROM configuration into config slot n
-* ROM7,n - Enable (n=1) or disable (n=0) ROM slot 7
+* CFGDEF,n - Make config n the default config
+* ROMS - List currently insertet ROMs
 
 ## PCB
 **WARNING** There is an error on the schematic and PCB silkscreen. D2 is reversed. So, if you are going to build this, make sure that you insert D2 with the cathode (stripe) at the bottom.
@@ -163,13 +161,12 @@ See the example .ini file for more configurations.
 Once you have your ROMs and your config file, run romtool.py. If all is well, this will produce 3 files in the build directory:
 
 * config.uf2
-* roms+config.uf2
 * roms.uf2
 
-You need to load roms+config.uf2 onto the Pico. Follow the same steps used for the firmware upload.
+You need to load config.uf2 then roms.uf2 onto the Pico. Follow the same steps used for the firmware upload.
 
 
-Once you have flashed the firmware and ROMs to the Pico, remove the USB cable and plug into your CPC. If all is well, the CPC should boot with the new ROMS.
+Once you have flashed the firmware, config and ROMs to the Pico, remove the USB cable and plug into your CPC. If all is well, the CPC should boot with the new ROMS.
 
 If the LED flashes on the Pico, something went wrong:  
 1 flash = No active config  

@@ -219,14 +219,5 @@ if __name__ == '__main__':
     buf.seek(0)
     image2uf2(buf, config['OUTPUT']['configfile'], __CONFIG_START)
 
-    if 'combined' in config['OUTPUT']:
-        with open(config['OUTPUT']['combined'], 'wb') as f:
-            fi = open(config['OUTPUT']['romfile'], 'rb')
-            f.write(fi.read())
-            fi.close()
-            fi = open(config['OUTPUT']['configfile'], 'rb')
-            f.write(fi.read())
-            fi.close()
-
 
 
