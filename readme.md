@@ -153,11 +153,11 @@ If you want to control the PICOROM from the CPC, you will also need to load the 
 >[CONFIG2]  
 > DESCRIPTION=Default CPC 464 with PICOROM
 > LOWER=0  
-> BANK0=10
-> BANK6=30
+> BANK0=10  
+> BANK6=30  
 > ACTIVE=1 
 
-This adds the picorom ROM into bank 6
+This adds the picorom ROM into bank 6. Since ROM 30 is listed in the [ROMS] section as picorom.rom
 
 See the example .ini file for more configurations.
 
