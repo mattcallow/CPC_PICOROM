@@ -62,11 +62,11 @@ There is a CPC ROM which provides a control over the ROM emulator.
 ## ROM Commands
 * PICOLOAD - reboot the PICO into bootloader mode
 * LED,n - Control the PICO LED n=1 for on, n=0 for off
-* ROMDIR - list the available ROMS
+* ROMDIR - list all available ROMS on the Pico
 * CFGLIST - list available configs
 * ROMIN,n,m - Insert ROM m into a slot n
 * ROMOUT,n - Remove ROM from a slot n
-* ROMLIST - List ROM slots
+* ROMLIST - List currently inserted ROM
 * CFGLOAD,n - Load a ROM configuration from config slot n
 * CFGSAVE,n - Save current ROM configuration into config slot n
 * CFGDEF,n - Make config n the default config
@@ -86,14 +86,17 @@ My PCBs were made by PCBWay. The [gerbers](hardware/gerbers.zip) I used are also
 Once you have a built board, you need to install the firmware and some CPC ROMs onto the Pico.
 Installation should be done before installing the board in your CPC.
 
+
 ### To load the firmware image:
 * Press and hold the bootsel button on the pico
-* Plug the pico into a PC/Mac. It should appear as a USB drive
+* Plug the pico into a PC. It should appear as a USB drive
 * Copy the firmware image cpc_rom_emulator.uf2 onto the Pico USB drive
 
 ### To create the ROM images:
-You will need python3 and some CPC ROM images. You will also need the picorom.rom file, which is in the firmware directory. The ROM images need to be plain ROM dumps, with no additional headers. They should be 16384 bytes in size. There are many ROM iamges available at the CPC Wiki  
-You will need to edit romtool.ini and then run romtool.py to create a uf2 image that can be flashed to the Pico.
+You will need python3 and some CPC ROM images. You will also need the picorom.rom file, which is in the firmware directory. The ROM images need to be plain ROM dumps, with no additional headers. They should be 16384 bytes in size. There are many ROM iamges available here https://www.cpcwiki.eu/index.php/ROM_List
+
+Be careful as some of these images contain an additional header, which you will need to remove first.  
+You will need to edit romtool.ini to match the ROMs that you have, and then run romtool.py to create uf2 images that can be flashed to the Pico.
 
 #### romtool.ini
 Consists of multiple sections:
