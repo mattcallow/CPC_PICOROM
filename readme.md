@@ -60,17 +60,17 @@ Data is sent from the PICO to the CPC via a 0xff byte area in the ROM at 0xC100.
 There is a CPC ROM which provides a control over the ROM emulator.
 
 ## ROM Commands
-* PICOLOAD - reboot the PICO into bootloader mode
-* LED,n - Control the PICO LED n=1 for on, n=0 for off
-* ROMDIR - list all available ROMS on the Pico
-* CFGLIST - list available configs
-* ROMIN,n,m - Insert ROM m into a slot n
-* ROMOUT,n - Remove ROM from a slot n
-* ROMLIST - List currently inserted ROM
-* CFGLOAD,n - Load a ROM configuration from config slot n
-* CFGSAVE,n - Save current ROM configuration into config slot n
-* CFGDEF,n - Make config n the default config
-* ROMS - List currently insertet ROMs
+* |PICOLOAD - reboot the PICO into bootloader mode
+* |LED,n - Control the PICO LED n=1 for on, n=0 for off
+* |ROMDIR - list all available ROMS on the Pico
+* |CFGLIST - list available configs
+* |ROMIN,n,m - Insert ROM m into a slot n
+* |ROMOUT,n - Remove ROM from a slot n
+* |ROMLIST - List currently inserted ROMs
+* |CFGLOAD,n - Load a ROM configuration from config slot n
+* |CFGSAVE,n - Save current ROM configuration into config slot n
+* |CFGDEF,n - Make config n the default config
+* |ROMS - List currently inserted ROMs (alias for ROMLIST)
 
 ## PCB
 **WARNING** There is an error on the schematic and PCB silkscreen. D2 is reversed. So, if you are going to build this, make sure that you insert D2 with the cathode (stripe) at the bottom.
@@ -174,16 +174,4 @@ Once you have flashed the firmware, config and ROMs to the Pico, remove the USB 
 If the LED flashes on the Pico, something went wrong:  
 1 flash = No active config  
 2 flashes = Invalid config  
-
-
-
-
-
- 
-
-
-
-
-
-
 
