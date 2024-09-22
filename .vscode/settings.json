@@ -2,6 +2,7 @@
     "files.associations": {
         "*.s": "plaintext",
         "flash.h": "c",
-        "xip.h": "c"
+        "xip.h": "c",
+        "stdlib.h": "c"
     }
 }

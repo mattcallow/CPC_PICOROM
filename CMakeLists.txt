@@ -7,6 +7,9 @@ include(pico_sdk_import.cmake)
 
 project(cpc_rom)
 
+set(PICO_BOARD pico)
+set(FAMILY rp2040)
+
 # initialize the Raspberry Pi Pico SDK
 pico_sdk_init()
 
@@ -17,6 +20,14 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPICO_USE_MALLOC_MUTEX=1")
 
 add_executable(cpc_rom_emulator
     main.c
+    flash.c
+    fatfs_driver.c
+    usb_msc_driver.c
+    usb_descriptors.c
+    ${PICO_SDK_PATH}/lib/tinyusb/src/tusb.c
+    ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source/ff.c
+    ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source/ffsystem.c
+    ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source/ffunicode.c
 )
 
 pico_set_linker_script(cpc_rom_emulator ${CMAKE_SOURCE_DIR}/memmap_custom.ld)
@@ -33,6 +44,12 @@ add_custom_command(OUTPUT "z80/picorom.rom"
 add_custom_target(generate_rom ALL
     DEPENDS "z80/picorom.rom")
 
+# add fatfs includes
+target_include_directories(cpc_rom_emulator PUBLIC
+  ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source
+  ${CMAKE_CURRENT_LIST_DIR}
+)
+
 # Add pico_stdlib library which aggregates commonly used features
 target_link_libraries(cpc_rom_emulator 
     pico_stdlib
@@ -40,9 +57,14 @@ target_link_libraries(cpc_rom_emulator
     pico_bootrom
     hardware_pio
     hardware_dma
+    tinyusb_additions
+    tinyusb_board
+    tinyusb_device
+    hardware_flash
+    hardware_sync
    )
 
-pico_enable_stdio_usb(cpc_rom_emulator 1)
+pico_enable_stdio_usb(cpc_rom_emulator 0)
 pico_enable_stdio_uart(cpc_rom_emulator 0)
 
 # create map/bin/hex/uf2 file in addition to ELF.

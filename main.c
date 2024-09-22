@@ -5,9 +5,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <tusb.h>
+#include <bsp/board.h>
+#include <ff.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "pico/bootrom.h"
+#include "hardware/watchdog.h"
 #include "hardware/vreg.h"
 #include "hardware/pio.h"
 #include "hardware/structs/xip_ctrl.h"
@@ -15,13 +18,14 @@
 #include "hardware/flash.h"
 #include "hardware/dma.h"
 #include "latch.pio.h"
+#include "bootsel_button.h"
+#include "flash.h"
 
-
-#define VER_MAJOR 2
+#define VER_MAJOR 3
 #define VER_MINOR 0
 #define VER_PATCH 0
 // not enough RAM for 16 banks
-#define NUM_ROM_BANKS 14
+#define NUM_ROM_BANKS 12
 #define ROM_SIZE 16384
 // RAM copies of the ROMs
 #undef USE_XIP_CACHE_AS_RAM
@@ -459,28 +463,86 @@ void fatal(int flashes) {
     }
 }
 
-int main() {
-#ifdef USE_XIP_CACHE_AS_RAM
-    // disable XIP cache - this frees up the cache RAM for variable storage
-    hw_clear_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_EN_BITS);
-#endif
-#ifdef DEBUG_CONFIG
-    stdio_init_all();
-    while (!tud_cdc_connected()) { sleep_ms(100);  }
-    printf("tud_cdc_connected() %s\n", __TIMESTAMP__);
-    printf("__FLASH_START  0x%08x __FLASH_LEN  0x%08x\n", __FLASH_START, __FLASH_LEN);
-    printf("__ROM_START    0x%08x __ROM_LEN    0x%08x\n", __ROM_START, __ROM_LEN);
-    printf("__CONFIG_START 0x%08x __CONFIG_LEN 0x%08x\n", __CONFIG_START, __CONFIG_LEN);
-#endif
-    gpio_init_mask(FULL_MASK);
-    gpio_set_dir_in_masked(FULL_MASK);
-    gpio_pull_down(WRITE_LATCH_GPIO); // pull down for diode OR
-    gpio_put(RESET_GPIO, 0);
-    CPC_ASSERT_RESET();
-    gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    gpio_put(PICO_DEFAULT_LED_PIN, 0);
+static FATFS filesystem;
 
+
+// some code from https://github.com/oyama/pico-usb-flash-drive
+
+// Check the bootsel button. If pressed for ~10 seconds, reformat and reboot
+static void button_task(void) {
+    static uint64_t long_push = 0;
+
+    if (bb_get_bootsel_button()) {
+        long_push++;
+    } else {
+        long_push = 0;
+    }
+    if (long_push > 125000) { // Long-push BOOTSEL button
+        // turn on the LED
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        // wait for button release
+        while(bb_get_bootsel_button());
+        // turn off LED
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+        // re-init the flash
+        flash_fat_initialize();
+        // and reset
+        watchdog_enable(1, 1);
+        while(1);
+    }
+}
+
+
+
+void usb_mode() {
+    board_init();
+    tud_init(BOARD_TUD_RHPORT);
+    stdio_init_all();  
+    f_mount(&filesystem, "/", 1);
+    while(1) // the mainloop
+    {
+        button_task();
+        tud_task(); // device task
+    } 
+}
+
+int load_rom(const TCHAR* path, void* dest) {
+    FIL fp;
+    FRESULT fr;
+    UINT bytes_read;
+    fr = f_open(&fp, path, FA_READ);
+    if (fr) return (int)fr;
+    fr = f_read(&fp, dest, ROM_SIZE, &bytes_read);
+    f_close(&fp);
+    if (fr) return (int)fr;
+
+    return 0;
+}
+
+
+int load_lower_rom(const TCHAR* path) {
+    return load_rom(path, (void *)LOWER_ROM);
+}
+
+int load_upper_rom(const TCHAR* path, int bank) {
+    int ret = load_rom(path, (void *)UPPER_ROMS[bank]);
+    if (ret == 0) {
+        upper_roms[bank] = 1;
+    }
+}
+
+void cpc_mode() {
+    CPC_ASSERT_RESET();
+    for (int i=0;i<NUM_ROM_BANKS;i++) {
+        upper_roms[i] = -1;
+        INSERT_UPPER_ROM(i , -1);
+    }
+    if (f_mount(&filesystem, "/", 1)) fatal(3);
+    if (load_lower_rom("OS_464.ROM")) fatal(4);
+    if (load_upper_rom("BASIC_1.0.ROM", 0)) fatal(5);
+    load_upper_rom("picorom.rom", 2);
+
+/*
 #ifdef DEBUG_CONFIG
     printf("rom_index is 0x%0x - listing ROMs\n", rom_index);
     for (int i=0;i<MAX_ROMS;i++) {
@@ -502,7 +564,7 @@ int main() {
 #endif
         fatal(2);
     }
-
+*/
     // overclock - pick the lowest freq that works reliably
     //set_sys_clock_khz(200000, true);
     //set_sys_clock_khz(225000, true);
@@ -511,6 +573,42 @@ int main() {
     uint offset = pio_add_program(pio, &latch_program);
     latch_program_init(pio, sm, offset);
     CPC_RELEASE_RESET();
+    gpio_put(PICO_DEFAULT_LED_PIN, 1);
     handle_latch();
+}
+
+
+int main() {
+#ifdef USE_XIP_CACHE_AS_RAM
+    // disable XIP cache - this frees up the cache RAM for variable storage
+    hw_clear_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_EN_BITS);
+#endif
+#ifdef DEBUG_CONFIG
+    stdio_init_all();
+    while (!tud_cdc_connected()) { sleep_ms(100);  }
+    printf("tud_cdc_connected() %s\n", __TIMESTAMP__);
+    printf("__FLASH_START  0x%08x __FLASH_LEN  0x%08x\n", __FLASH_START, __FLASH_LEN);
+    printf("__ROM_START    0x%08x __ROM_LEN    0x%08x\n", __ROM_START, __ROM_LEN);
+    printf("__CONFIG_START 0x%08x __CONFIG_LEN 0x%08x\n", __CONFIG_START, __CONFIG_LEN);
+#endif
+    gpio_init_mask(FULL_MASK);
+    gpio_set_dir_in_masked(FULL_MASK);
+    gpio_pull_down(WRITE_LATCH_GPIO); // pull down for diode OR
+    gpio_pull_up(ROMEN_GPIO); // pull ROMEN high. If this goes low within xxms of startup, then assume we are connected to CPC
+    gpio_put(RESET_GPIO, 0);
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    gpio_put(PICO_DEFAULT_LED_PIN, 0);
+
+    CPC_RELEASE_RESET();
+
+    while (to_ms_since_boot(get_absolute_time()) < 500) {
+        // if ROMEN goes low, start emulation
+        if (gpio_get(ROMEN_GPIO) == 0) {
+            cpc_mode();
+        }
+    }
+    // If we get here assume that we are not plugged in to a CPC - emuulate a USB drive
+    usb_mode();
 }
 
