@@ -9,13 +9,14 @@
 #include <stdio.h>
 #include <string.h>
 
+extern uint32_t __DRIVE_START[];
+extern uint32_t __DRIVE_LEN[];
+
 #define FLASH_FAT_BLOCK_SIZE   4096
 #define FLASH_FAT_OFFSET       0x1E0000
-#define FAT_BLOCK_NUM          256  // 128KB
 #define FAT_BLOCK_SIZE         512
+#define FAT_BLOCK_NUM          2048
 
-
-void flash_fat_initialize(void);
 bool flash_fat_read(int block, uint8_t *buffer);
 bool flash_fat_write(int block, uint8_t *buffer);
 

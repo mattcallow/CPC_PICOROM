@@ -4,7 +4,8 @@
 #include "flash.h"
 
 
-#define  DISK_BLOCK_NUM  128
+// 1MB disk
+#define  DISK_BLOCK_NUM  2048
 #define  DISK_BLOCK_SIZE 512
 
 

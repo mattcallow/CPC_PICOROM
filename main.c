@@ -40,10 +40,8 @@ static volatile uint8_t rom_bank = 0;
 // values from the linker
 extern uint32_t __FLASH_START[];
 extern uint32_t __FLASH_LEN[];
-extern uint32_t __ROM_START[];
-extern uint32_t __ROM_LEN[];
-extern uint32_t __CONFIG_START[];
-extern uint32_t __CONFIG_LEN[];
+extern uint32_t __DRIVE_START[];
+extern uint32_t __DRIVE_LEN[];
 
 
 #pragma pack(push,1)
@@ -64,12 +62,12 @@ typedef struct {
 } config_t;
 #pragma pack(pop)
 
-rom_index_t *rom_index = (rom_index_t *)__ROM_START;
+//rom_index_t *rom_index = (rom_index_t *)__ROM_START;
 
 
 #define CONFIG_VER 1
 #define MAX_ROMS 120
-#define INDEX_ENTRY_SIZE sizeof(rom_index_t)
+//#define INDEX_ENTRY_SIZE sizeof(rom_index_t)
 #define INDEX_SIZE 4096
 #define CONFIG_SIZE sizeof(config_t)
 #define MAX_CONFIG 16
@@ -93,18 +91,9 @@ const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WR
     upper_roms[bank] = rom_number; \
     if (rom_number < 0) { \
         memset(UPPER_ROMS[bank], 0xff, ROM_SIZE);\
-    } else {\
-        memcpy(UPPER_ROMS[bank],  (void *)__ROM_START + INDEX_SIZE+ROM_SIZE*rom_number, ROM_SIZE);\
     }\
 } 
-#define INSERT_LOWER_ROM(rom_number) { \
-    lower_rom = rom_number; \
-    if (rom_number < 0) { \
-        memset(LOWER_ROM, 0xff, ROM_SIZE);\
-    } else {\
-        memcpy(LOWER_ROM,  (void *)__ROM_START + INDEX_SIZE+ROM_SIZE*rom_number, ROM_SIZE);\
-    }\
-} 
+
 
 #define CPC_ASSERT_RESET()    gpio_set_dir(RESET_GPIO, GPIO_OUT)
 #define CPC_RELEASE_RESET()   gpio_set_dir(RESET_GPIO, GPIO_IN)
@@ -113,17 +102,20 @@ int current_config = -1;
 
 int __not_in_flash_func(find_active_config)() 
 {
+    /*
     config_t *config = (config_t *)__CONFIG_START;
     for (int i=0;i<MAX_CONFIG;i++, config++) {
         if (config->magic == CONFIG_MAGIC && config->ver == CONFIG_VER && config->active) {
             return i;
         }
     }
+    */
     return -1;
 }
 
 bool __not_in_flash_func(load_config)(int slot) 
 {
+    /*
     config_t *config = &((config_t *)__CONFIG_START)[slot];
 #ifdef DEBUG_CONFIG
     printf("loading config %d magic=%x ver=%x\n", slot, config->magic, config->ver);
@@ -148,6 +140,7 @@ bool __not_in_flash_func(load_config)(int slot)
         INSERT_UPPER_ROM(i, config->upper_roms[i]);
     }
     current_config = slot;
+    */
     return true;
 }
 
@@ -155,6 +148,7 @@ static uint8_t flash_buf[FLASH_SECTOR_SIZE];
 
 bool __not_in_flash_func(save_config)(int slot, bool make_active)
 {
+    /*
     uint32_t irq_status;
     // copy existing config pages to RAM
     memcpy(flash_buf, __CONFIG_START, sizeof(flash_buf));
@@ -194,6 +188,7 @@ bool __not_in_flash_func(save_config)(int slot, bool make_active)
 #ifdef DEBUG_CONFIG
     printf("config stored\n");
 #endif
+*/
 }
 
 PIO pio = pio0;
@@ -252,6 +247,9 @@ void __not_in_flash_func(handle_latch)(void)
     int num_params = 0;
     int params[4];
     char buf[32];
+    FRESULT res;
+    DIR dir;
+    FILINFO fno;
     rom_index_t *idx;
     config_t *cfg;
     while(1) {
@@ -278,19 +276,15 @@ void __not_in_flash_func(handle_latch)(void)
                 num_params = 0;
                 switch(cmd) {
                     case CMD_ROMDIR1: // dir
-                        list_index = 0;
+                        res = f_opendir(&dir, "/");  
                         // fall through
                     case CMD_ROMDIR2: // next dir
-                        idx = &rom_index[list_index];
-                        while (idx->rom_type == 0xff && list_index < MAX_ROMS) {
-                            list_index++;
-                            idx = &rom_index[list_index];
-                        }
-                        if (list_index == MAX_ROMS) {
+                        res = f_readdir(&dir, &fno);  
+                        if (res != FR_OK || fno.fname[0] == 0) {
+                            f_closedir(&dir);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
                         } else {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%3d: %s", list_index, idx->name);
-                            list_index++;
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%10u %s", fno.fsize, fno.fname);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                         }
@@ -348,6 +342,7 @@ void __not_in_flash_func(handle_latch)(void)
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
+                        /*
                     case CMD_CFGLIST1: // list config
                         list_index = 0;
                         cfg = (config_t *)__CONFIG_START;
@@ -368,7 +363,8 @@ void __not_in_flash_func(handle_latch)(void)
                         }
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
-                        break;                        
+                        break;        
+                        */                
                     case CMD_ROMIN: // Load ROM into bank
                         num_params = 2;
                         break;
@@ -380,7 +376,9 @@ void __not_in_flash_func(handle_latch)(void)
                         num_params = 1;
                         break;
                     case CMD_PICOLOAD:
-                        reset_usb_boot(0, 0);
+                        CPC_ASSERT_RESET();
+                        usb_mode();
+                        //reset_usb_boot(0, 0);
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
@@ -484,8 +482,6 @@ static void button_task(void) {
         while(bb_get_bootsel_button());
         // turn off LED
         gpio_put(PICO_DEFAULT_LED_PIN, false);
-        // re-init the flash
-        flash_fat_initialize();
         // and reset
         watchdog_enable(1, 1);
         while(1);
@@ -498,13 +494,22 @@ void usb_mode() {
     board_init();
     tud_init(BOARD_TUD_RHPORT);
     stdio_init_all();  
-    f_mount(&filesystem, "/", 1);
+    f_mount(&filesystem, "", 1);
     while(1) // the mainloop
     {
         button_task();
         tud_task(); // device task
     } 
 }
+
+void debug(const char *msg) {
+    FIL fp;
+    UINT l;
+    f_open(&fp, "DEBUG.TXT", FA_WRITE|FA_OPEN_APPEND);
+    f_printf(&fp, "%06d: %s\n", to_ms_since_boot(get_absolute_time()), msg);
+    f_close(&fp);
+}
+
 
 int load_rom(const TCHAR* path, void* dest) {
     FIL fp;
@@ -515,7 +520,6 @@ int load_rom(const TCHAR* path, void* dest) {
     fr = f_read(&fp, dest, ROM_SIZE, &bytes_read);
     f_close(&fp);
     if (fr) return (int)fr;
-
     return 0;
 }
 
@@ -529,6 +533,7 @@ int load_upper_rom(const TCHAR* path, int bank) {
     if (ret == 0) {
         upper_roms[bank] = 1;
     }
+    return ret;
 }
 
 void cpc_mode() {
@@ -537,10 +542,17 @@ void cpc_mode() {
         upper_roms[i] = -1;
         INSERT_UPPER_ROM(i , -1);
     }
-    if (f_mount(&filesystem, "/", 1)) fatal(3);
+    if (f_mount(&filesystem, "", 1)) fatal(3);
     if (load_lower_rom("OS_464.ROM")) fatal(4);
+    //debug("OS loaded");
     if (load_upper_rom("BASIC_1.0.ROM", 0)) fatal(5);
+    //debug("basic loaded");
+    load_upper_rom("Chuckie.rom", 1);
     load_upper_rom("picorom.rom", 2);
+    load_upper_rom("Arkanoid.rom", 3);
+    load_upper_rom("Utopia_v1_25b.ROM", 4);
+    load_upper_rom("Thrust.ROM", 5);
+    load_upper_rom("Donkey_Kong.rom", 6);
 
 /*
 #ifdef DEBUG_CONFIG
@@ -572,9 +584,11 @@ void cpc_mode() {
     multicore_launch_core1(emulate);
     uint offset = pio_add_program(pio, &latch_program);
     latch_program_init(pio, sm, offset);
-    CPC_RELEASE_RESET();
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
+    CPC_RELEASE_RESET();
+    debug("CPC released from reset");
     handle_latch();
+    debug("ERROR - should never reach here");
 }
 
 
@@ -609,6 +623,10 @@ int main() {
         }
     }
     // If we get here assume that we are not plugged in to a CPC - emuulate a USB drive
+        if (f_mount(&filesystem, "", 1)) fatal(3);
+
+    debug("Entering USB mode");
+    f_unmount("");
     usb_mode();
 }
 

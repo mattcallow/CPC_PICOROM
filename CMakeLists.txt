@@ -20,14 +20,14 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPICO_USE_MALLOC_MUTEX=1")
 
 add_executable(cpc_rom_emulator
     main.c
-    flash.c
     fatfs_driver.c
+    flash.c
     usb_msc_driver.c
     usb_descriptors.c
     ${PICO_SDK_PATH}/lib/tinyusb/src/tusb.c
-    ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source/ff.c
-    ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source/ffsystem.c
-    ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source/ffunicode.c
+    fatfs/source/ff.c
+    fatfs/source/ffsystem.c
+    fatfs/source/ffunicode.c
 )
 
 pico_set_linker_script(cpc_rom_emulator ${CMAKE_SOURCE_DIR}/memmap_custom.ld)
@@ -46,7 +46,7 @@ add_custom_target(generate_rom ALL
 
 # add fatfs includes
 target_include_directories(cpc_rom_emulator PUBLIC
-  ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source
+  fatfs/source
   ${CMAKE_CURRENT_LIST_DIR}
 )
 
