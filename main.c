@@ -44,35 +44,6 @@ extern uint32_t __DRIVE_START[];
 extern uint32_t __DRIVE_LEN[];
 
 
-#pragma pack(push,1)
-typedef struct {
-    uint8_t  rom_type;  // 1
-    char name[33];      // 33
-} rom_index_t;
-
-typedef struct {
-    uint16_t magic;
-    uint16_t ver;
-    uint8_t active;
-    uint8_t spare2;
-    int8_t lower_rom;
-    int8_t upper_roms[NUM_ROM_BANKS];
-    char desc[33];
-    char spare[10];
-} config_t;
-#pragma pack(pop)
-
-//rom_index_t *rom_index = (rom_index_t *)__ROM_START;
-
-
-#define CONFIG_VER 1
-#define MAX_ROMS 120
-//#define INDEX_ENTRY_SIZE sizeof(rom_index_t)
-#define INDEX_SIZE 4096
-#define CONFIG_SIZE sizeof(config_t)
-#define MAX_CONFIG 16
-#define CONFIG_MAGIC 0x7b0
-
 static int upper_roms[NUM_ROM_BANKS];
 static int lower_rom;
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
@@ -100,95 +71,129 @@ const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WR
 
 int current_config = -1;
 
+
+void fatal(int flashes) {
+    while(1) {
+        for (int i=0;i<flashes;i++) {
+            gpio_put(PICO_DEFAULT_LED_PIN, 1);
+            sleep_ms(100);
+            gpio_put(PICO_DEFAULT_LED_PIN, 0);
+            sleep_ms(200);   
+        }
+        sleep_ms(500);
+    }
+}
+// some code from https://github.com/oyama/pico-usb-flash-drive
+
+// Check the bootsel button. If pressed for ~10 seconds, reformat and reboot
+static void button_task(void) {
+    static uint64_t long_push = 0;
+
+    if (bb_get_bootsel_button()) {
+        long_push++;
+    } else {
+        long_push = 0;
+    }
+    if (long_push > 125000) { // Long-push BOOTSEL button
+        // turn on the LED
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        // wait for button release
+        while(bb_get_bootsel_button());
+        // turn off LED
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+        // and reset
+        watchdog_enable(1, 1);
+        while(1);
+    }
+}
+
+static FATFS filesystem;
+
+void usb_mode() {
+    board_init();
+    tud_init(BOARD_TUD_RHPORT);
+    stdio_init_all();  
+    f_mount(&filesystem, "", 1);
+    while(1) // the mainloop
+    {
+        button_task();
+        tud_task(); // device task
+    } 
+}
+
+void debug(const char *msg) {
+    return;
+    FIL fp;
+    UINT l;
+    f_open(&fp, "DEBUG.TXT", FA_WRITE|FA_OPEN_APPEND);
+    f_printf(&fp, "%06d: %s\n", to_ms_since_boot(get_absolute_time()), msg);
+    f_close(&fp);
+}
+
+
+int load_rom(const TCHAR* path, void* dest) {
+    FIL fp;
+    FRESULT fr;
+    UINT bytes_read;
+    fr = f_open(&fp, path, FA_READ);
+    if (fr) return (int)fr;
+    fr = f_read(&fp, dest, ROM_SIZE, &bytes_read);
+    f_close(&fp);
+    if (fr) return (int)fr;
+    return 0;
+}
+
+
+int load_lower_rom(const TCHAR* path) {
+    return load_rom(path, (void *)LOWER_ROM);
+}
+
+int load_upper_rom(const TCHAR* path, int bank) {
+    int ret = load_rom(path, (void *)UPPER_ROMS[bank]);
+    if (ret == 0) {
+        upper_roms[bank] = 1;
+    }
+    return ret;
+}
+
 int __not_in_flash_func(find_active_config)() 
 {
-    /*
-    config_t *config = (config_t *)__CONFIG_START;
-    for (int i=0;i<MAX_CONFIG;i++, config++) {
-        if (config->magic == CONFIG_MAGIC && config->ver == CONFIG_VER && config->active) {
-            return i;
-        }
+    FIL fp;
+    TCHAR buf[10];
+    int cfg = 0;
+    if (f_open(&fp, "DEFAULT.CFG", FA_READ)) {
+        return 0; // no active config, so use 0
     }
-    */
-    return -1;
+    
+    f_gets(buf, sizeof(buf), &fp);
+    if (buf[0] >= '0' && buf[0] <= '9') {
+        cfg = buf[0] - '0';
+    }
+    f_close(&fp);
+    debug("found active config");
+    return cfg;
 }
 
 bool __not_in_flash_func(load_config)(int slot) 
 {
-    /*
-    config_t *config = &((config_t *)__CONFIG_START)[slot];
-#ifdef DEBUG_CONFIG
-    printf("loading config %d magic=%x ver=%x\n", slot, config->magic, config->ver);
-#endif
-    if (config->magic != CONFIG_MAGIC) {
+    FIL fp;
+    TCHAR buf[80];
+    sprintf(buf, "%d.CFG", slot);
+    debug(buf);
+    if (f_open(&fp, buf, FA_READ)) {
         return false;
     }
-    if (config->ver != CONFIG_VER) {
-        return false;
+    while(!f_eof(&fp)) {
+         f_gets(buf, sizeof(buf), &fp);
+         if (buf[0] == '#') continue;
+         if (buf[0] == 'L' && buf[1] == ':') {
+            load_lower_rom(&buf[2]);
+        } else if (buf[0] >= '0' && buf[0] <= '9' && buf[1] == ':') {
+            load_upper_rom(&buf[2], buf[0] - '0');
+        }
     }
-#ifdef DEBUG_CONFIG
-    printf("ROM %d -> Lower ROM\n", config->lower_rom);
-#endif
-    if (config->lower_rom < 0) {
-        return false;
-    }
-    INSERT_LOWER_ROM(config->lower_rom);
-    for (int i=0;i<NUM_ROM_BANKS;i++) {
-#ifdef DEBUG_CONFIG
-        printf("ROM %d -> Upper ROM %d\n", config->upper_roms[i], i);
-#endif
-        INSERT_UPPER_ROM(i, config->upper_roms[i]);
-    }
-    current_config = slot;
-    */
+    f_close(&fp);
     return true;
-}
-
-static uint8_t flash_buf[FLASH_SECTOR_SIZE];
-
-bool __not_in_flash_func(save_config)(int slot, bool make_active)
-{
-    /*
-    uint32_t irq_status;
-    // copy existing config pages to RAM
-    memcpy(flash_buf, __CONFIG_START, sizeof(flash_buf));
-    // update config at slot 'slot'
-    config_t *config;
-    if (make_active) {
-        config = (config_t *)(flash_buf);
-        for (int i=0;i<MAX_CONFIG;i++, config++) {
-            if (i == slot) {
-                config->active = 1;
-            } else {
-                config->active = 0;
-            }
-        }
-    } else {
-        config = (config_t *)(flash_buf+CONFIG_SIZE*slot);
-        config->magic = CONFIG_MAGIC;
-        config->ver = CONFIG_VER;
-        config->lower_rom = lower_rom;
-        for (int i=0;i<NUM_ROM_BANKS;i++) {
-            config->upper_roms[i] = upper_roms[i];
-        }
-    }
-    // erase and re-save all config
-#ifdef DEBUG_CONFIG
-    printf("Erasing config 0x%x 0x%x\n", (uint32_t)__CONFIG_START - XIP_BASE, (size_t)__CONFIG_LEN);
-#endif
-    irq_status = save_and_disable_interrupts();
-    flash_range_erase((uint32_t)__CONFIG_START - XIP_BASE, (size_t)__CONFIG_LEN);
-    restore_interrupts(irq_status);
-#ifdef DEBUG_CONFIG
-    printf("region erased\n");
-#endif
-    irq_status = save_and_disable_interrupts();
-    flash_range_program((uint32_t)__CONFIG_START - XIP_BASE, flash_buf, (size_t)__CONFIG_LEN);
-    restore_interrupts(irq_status);
-#ifdef DEBUG_CONFIG
-    printf("config stored\n");
-#endif
-*/
 }
 
 PIO pio = pio0;
@@ -250,8 +255,6 @@ void __not_in_flash_func(handle_latch)(void)
     FRESULT res;
     DIR dir;
     FILINFO fno;
-    rom_index_t *idx;
-    config_t *cfg;
     while(1) {
         uint8_t latch =  pio_sm_get_blocking(pio, sm)  & 0xff;
         // printf("l:%d c:%d rb:%d\n", latch, cmd, rom_bank);
@@ -399,7 +402,7 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMLOAD,%d, %d", params[0], params[1]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            if (params[1] >= MAX_ROMS) params[1] = MAX_ROMS-1;
+                            //if (params[1] >= MAX_ROMS) params[1] = MAX_ROMS-1;
                             if (params[1] < 0) params[1] = 0;
                             INSERT_UPPER_ROM(params[0], params[1]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
@@ -416,7 +419,7 @@ void __not_in_flash_func(handle_latch)(void)
                             break;
                         case CMD_CFGSAVE:
                             // TODO check bounds
-                            save_config(params[0], false);
+                            //save_config(params[0], false);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break; 
                         case CMD_CFGLOAD:
@@ -437,7 +440,7 @@ void __not_in_flash_func(handle_latch)(void)
                             #ifdef DEBUG_CONFIG
                             printf("active,%d latch=%d num_params=%d\n", params[0], latch, num_params);
                             #endif
-                            save_config(params[0], true);
+                            //save_config(params[0], true);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break;                      
@@ -449,92 +452,7 @@ void __not_in_flash_func(handle_latch)(void)
 }
 
 
-void fatal(int flashes) {
-    while(1) {
-        for (int i=0;i<flashes;i++) {
-            gpio_put(PICO_DEFAULT_LED_PIN, 1);
-            sleep_ms(100);
-            gpio_put(PICO_DEFAULT_LED_PIN, 0);
-            sleep_ms(200);   
-        }
-        sleep_ms(500);
-    }
-}
 
-static FATFS filesystem;
-
-
-// some code from https://github.com/oyama/pico-usb-flash-drive
-
-// Check the bootsel button. If pressed for ~10 seconds, reformat and reboot
-static void button_task(void) {
-    static uint64_t long_push = 0;
-
-    if (bb_get_bootsel_button()) {
-        long_push++;
-    } else {
-        long_push = 0;
-    }
-    if (long_push > 125000) { // Long-push BOOTSEL button
-        // turn on the LED
-        gpio_put(PICO_DEFAULT_LED_PIN, true);
-        // wait for button release
-        while(bb_get_bootsel_button());
-        // turn off LED
-        gpio_put(PICO_DEFAULT_LED_PIN, false);
-        // and reset
-        watchdog_enable(1, 1);
-        while(1);
-    }
-}
-
-
-
-void usb_mode() {
-    board_init();
-    tud_init(BOARD_TUD_RHPORT);
-    stdio_init_all();  
-    f_mount(&filesystem, "", 1);
-    while(1) // the mainloop
-    {
-        button_task();
-        tud_task(); // device task
-    } 
-}
-
-void debug(const char *msg) {
-    FIL fp;
-    UINT l;
-    f_open(&fp, "DEBUG.TXT", FA_WRITE|FA_OPEN_APPEND);
-    f_printf(&fp, "%06d: %s\n", to_ms_since_boot(get_absolute_time()), msg);
-    f_close(&fp);
-}
-
-
-int load_rom(const TCHAR* path, void* dest) {
-    FIL fp;
-    FRESULT fr;
-    UINT bytes_read;
-    fr = f_open(&fp, path, FA_READ);
-    if (fr) return (int)fr;
-    fr = f_read(&fp, dest, ROM_SIZE, &bytes_read);
-    f_close(&fp);
-    if (fr) return (int)fr;
-    return 0;
-}
-
-
-int load_lower_rom(const TCHAR* path) {
-    return load_rom(path, (void *)LOWER_ROM);
-}
-
-int load_upper_rom(const TCHAR* path, int bank) {
-    int ret = load_rom(path, (void *)UPPER_ROMS[bank]);
-    if (ret == 0) {
-        upper_roms[bank] = 1;
-    }
-    return ret;
-}
 
 void cpc_mode() {
     CPC_ASSERT_RESET();
@@ -543,16 +461,20 @@ void cpc_mode() {
         INSERT_UPPER_ROM(i , -1);
     }
     if (f_mount(&filesystem, "", 1)) fatal(3);
-    if (load_lower_rom("OS_464.ROM")) fatal(4);
-    //debug("OS loaded");
-    if (load_upper_rom("BASIC_1.0.ROM", 0)) fatal(5);
-    //debug("basic loaded");
-    load_upper_rom("Chuckie.rom", 1);
-    load_upper_rom("picorom.rom", 2);
-    load_upper_rom("Arkanoid.rom", 3);
-    load_upper_rom("Utopia_v1_25b.ROM", 4);
-    load_upper_rom("Thrust.ROM", 5);
-    load_upper_rom("Donkey_Kong.rom", 6);
+    int c = find_active_config();
+    if (!load_config(c)) {
+        if (load_lower_rom("OS_464.ROM")) fatal(4);
+        //debug("OS loaded");
+        if (load_upper_rom("BASIC_1.0.ROM", 0)) fatal(5);
+        //debug("basic loaded");
+        load_upper_rom("Chuckie.rom", 1);
+        load_upper_rom("picorom.rom", 2);
+        load_upper_rom("Arkanoid.rom", 3);
+        load_upper_rom("Utopia_v1_25b.ROM", 4);
+        load_upper_rom("Thrust.ROM", 5);
+        load_upper_rom("Donkey_Kong.rom", 6);
+    }
+
 
 /*
 #ifdef DEBUG_CONFIG
