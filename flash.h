@@ -12,7 +12,6 @@
 extern uint32_t __DRIVE_START[];
 extern uint32_t __DRIVE_LEN[];
 
-#define FLASH_FAT_OFFSET       0x1E0000
 #define FAT_BLOCK_SIZE         512
 #define FAT_BLOCK_NUM          2048
 
