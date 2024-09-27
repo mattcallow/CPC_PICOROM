@@ -34,6 +34,7 @@ CMD_ROMSET:		EQU $12
 		jp ROMDIR
 		jp ROMLIST
 		jp ROMOUT
+		jp ROMIN
 
 NAME_TABLE:	
 		defm  "PICO RO",'M'+128
@@ -43,6 +44,7 @@ NAME_TABLE:
 		defm  "PDI", 'R'+128
 		defm  "ROM", 'S'+128
 		defm  "ROMOU", 'T'+128
+		defm  "ROMI", 'N'+128
 		defb    0
 INIT:	
 		push HL
@@ -149,14 +151,36 @@ ROMLIST:	LIST_COMMAND CMD_ROMLIST1, CMD_ROMLIST2
 ROMIN:
 		cp	2
 		jr	nz, RI_USAGE
+
+		LD   L,(IX+0)
+        LD   H,(IX+1)   ; HL = string descriptor
+
+		ld	A,(HL)			; length
+		cp	0
+		jr	z,	RI_DONE		; no file given
+
 		ld BC, IO_PORT 	; command prefix
 		out (c), c
-		ld C, $10 	; command byte
+		ld C, CMD_ROMIN
 		out (c), c
-		ld C, (IX+0)
+		ld C, (IX+2)	; slot number
 		out (c), c
-		ld C, (IX+2)
-		out (c), c
+
+		ld c, (HL)			; get length in C
+		out (c), c			; and send it
+		inc	HL
+		ld 	E,(HL)
+		inc	HL
+		ld 	D,(HL)
+		ex  DE, HL			; string address now in HL
+	; send filename - length is in A
+RI_LOOP:
+		ld	c,(HL)
+		out	(c),C
+		inc	HL
+		dec	A
+		jr	nz,	RI_LOOP
+
 		jr	RI_DONE
 RI_USAGE:
 		ld hl, RI_U_MSG
@@ -164,7 +188,7 @@ RI_USAGE:
 RI_DONE:
 		ret
 RI_U_MSG:
-		defm  " Usage |ROMIN,<ROM BANK>,<ROM Number>",0x0d,0x0a,0x0d,0x0a,0x00
+		defm  " Usage |ROMIN,<ROM BANK>,<ROM filename>",0x0d,0x0a,0x0d,0x0a,0x00
 
 ROMOUT:		CMD_1P CMD_ROMOUT, RO_U_MSG
 RO_U_MSG:
@@ -179,7 +203,7 @@ ROMSET:	; load a romset from file
 
 		ld	A,(HL)			; length
 		cp	0
-		jr	z,	RS_DONE			; no file given
+		jr	z,	RS_DONE		; no file given
 
 		ld BC, IO_PORT 	; command prefix
 		out (c), c

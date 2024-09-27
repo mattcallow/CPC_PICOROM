@@ -1,6 +1,6 @@
 // CPC ROM emulator
 // Matt Callow March 2023
-// Updated Nov 2023
+// Updated Sept 2024
 #undef DEBUG_CONFIG
 #include <string.h>
 #include <stdio.h>
@@ -358,7 +358,7 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;              
                     case CMD_ROMIN: // Load ROM into bank
-                        num_params = 2;
+                        num_params = 1;
                         break;
                     case CMD_ROMOUT: // unload ROM from bank
                     case CMD_LED: 
@@ -396,13 +396,19 @@ void __not_in_flash_func(handle_latch)(void)
                 if (num_params == 0) {
                     switch (cmd) {
                         case CMD_ROMIN:
-                            CPC_ASSERT_RESET();
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMLOAD,%d, %d", params[0], params[1]);
+                            // get filename
+                            memset(buf, 0, sizeof(buf));
+                            num_params =  pio_sm_get_blocking(pio, sm)  & 0xff; // get string length
+                            for (int i=0;i<num_params;i++) {
+                                buf[i] = pio_sm_get_blocking(pio, sm)  & 0xff;  // read string info buffer
+                            }
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMIN,%d, %s", params[0], buf);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
                             //if (params[1] >= MAX_ROMS) params[1] = MAX_ROMS-1;
                             if (params[1] < 0) params[1] = 0;
-                            INSERT_UPPER_ROM(params[0], params[1]);
+                            CPC_ASSERT_RESET();
+                            load_upper_rom(buf, params[0]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             CPC_RELEASE_RESET();
                             break;

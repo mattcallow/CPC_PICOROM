@@ -26,8 +26,8 @@ You can create config files from the PC to define what ROMS to load. These files
 <SLOT>:<ROMFILE>
 ```
 
-Where <SLOT> = L for lower ROM or 0-9 for upper ROM bank
-<ROMFILE> = the filename of the ROM to load
+Where ```<SLOT>``` = L for lower ROM or 0-9 for upper ROM bank  
+and ```<ROMFILE>``` = the filename of the ROM to load
 
 For example:
 ```
@@ -42,19 +42,30 @@ L:OS_6128.ROM
 6:Chuckie.rom
 ```
 
-At startup, if the Pico finds a file called DEFAULT.CFG it will load that.
+At startup, if the Pico finds a file called DEFAULT.CFG it will load that. Otherwise if will try to load OS_6128.ROM and BASIC_1.1.ROM
 
+
+### Status LED
+
+The LED shows the status of the board:
+* solid on - emulating ROMs for the CPC
+* 1/2 second on/off - emulating USB drive for PC
+* off - bootloader mode (or no power!)
+* Repeating rapid flashes indicate an error:
+  * 4 flashes = Failed to load OS ROM
+  * 5 flashes = Failed to load Basic ROM
 
 ### ROM Commands
 
 If you have loaded the picorom.rom, the you get some new commands on the CPC which let you control the board:
 
-* |PUSB - start emulating a USB drive. CPC will stpo working.
+* |PUSB - start emulating a USB drive. CPC will stop working.
 * |LED,n - Control the PICO LED n=1 for on, n=0 for off
-* |ROMSET,"<config file>" - load a new config from the Pico.
+* |ROMSET,"```<config file>```" - load a new config from the Pico.
 * |PDIR - list all available ROMS on the Pico
 * |ROMS - List currently inserted ROMs 
 * |ROMOUT,n - remove a ROM from slot n
+* |ROMIN,n,"```<rom file>```" - loads rom into slot n
 
 # More details
 
@@ -128,10 +139,56 @@ There is a schematic and PCB layout which includes an optional USB interface.
 
 My PCBs were made by PCBWay. The [gerbers](hardware/gerbers.zip) I used are also avalilable.
 
+## Credits
+FatFs - http://elm-chan.org/fsw/ff/ 
 
-## Error Codes
+```
+/*----------------------------------------------------------------------------/
+/  FatFs - Generic FAT Filesystem Module  Rx.xx                               /
+/-----------------------------------------------------------------------------/
+/
+/ Copyright (C) 20xx, ChaN, all right reserved.
+/
+/ FatFs module is an open source software. Redistribution and use of FatFs in
+/ source and binary forms, with or without modification, are permitted provided
+/ that the following condition is met:
+/
+/ 1. Redistributions of source code must retain the above copyright notice,
+/    this condition and the following disclaimer.
+/
+/ This software is provided by the copyright holder and contributors "AS IS"
+/ and any warranties related to this software are DISCLAIMED.
+/ The copyright owner or contributors be NOT LIABLE for any damages caused
+/ by use of this software.
+/----------------------------------------------------------------------------*/
+```
 
-If the LED flashes on the Pico, something went wrong:  
-* 4 flashes = Failed to load OS ROM
-* 5 flashes = Failed to load Basic ROM
+USB flash drive code - https://github.com/oyama/pico-usb-flash-drive
 
+```
+Copyright 2024, Hiroyuki OYAMA. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice, this
+  list of conditions and the following disclaimer in the documentation and/or
+  other materials provided with the distribution.
+- Neither the name of the copyright holder nor the names of its contributors may
+  be used to endorse or promote products derived from this software without
+  specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “  AS IS”   AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+```
