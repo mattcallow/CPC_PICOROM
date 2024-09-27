@@ -1,6 +1,6 @@
 ; Pico ROM control ROM
 ; 
-ver_major		EQU 2
+ver_major		EQU 3
 ver_minor		EQU 0
 ver_patch		EQU 0
 TXT_OUTPUT: 	EQU $BB5A
@@ -19,6 +19,7 @@ CMD_CFGLIST1	EQU $9
 CMD_CFGLIST2	EQU $A
 CMD_ROMIN:		EQU $10
 CMD_ROMOUT:		EQU $11
+CMD_ROMSET:		EQU $12
 
 		org $c000
 		defb    1       ; background rom
@@ -38,6 +39,7 @@ CMD_ROMOUT:		EQU $11
 		jp CFGSAVE
 		jp CFGDEF
 		jp ROMLIST		; ROMS is an alias for ROMLIST
+		jp ROMSET
 
 NAME_TABLE:	
 		defm  "PICO RO",'M'+128
@@ -52,6 +54,7 @@ NAME_TABLE:
 		defm  "CFGSAV",'E'+128
 		defm  "CFGDE", 'F'+128
 		defm  "ROM", 'S'+128
+		defm  "ROMSE", 'T'+128
 
 		defb    0
 INIT:	
@@ -180,6 +183,47 @@ ROMOUT:		CMD_1P CMD_ROMOUT, RO_U_MSG
 RO_U_MSG:
 		defm  " Usage |ROMOUT,<ROM BANK>",0x0d,0x0a,0x0d,0x0a,0x00
 
+
+ROMSET:	; load a romset from file
+		cp	1
+		jr	nz, RS_USAGE
+		LD   L,(IX+0)
+        LD   H,(IX+1)   ; HL = string descriptor
+
+		ld	A,(HL)			; length
+		cp	0
+		jr	z,	RS_DONE			; no file given
+
+		ld BC, IO_PORT 	; command prefix
+		out (c), c
+		ld C, CMD_ROMSET 	; command byte
+		out (c), c
+
+		ld c, (HL)			; length
+		out (c), c
+		inc	HL
+		ld 	E,(HL)
+		inc	HL
+		ld 	D,(HL)
+		ex  DE, HL			; string address now in HL
+		; send filename - length is in A
+
+RSLOOP:
+		ld	c,(HL)
+		out	(c),C
+		inc	HL
+		dec	A
+		jr	nz,	RSLOOP
+
+
+		jr	RS_DONE
+RS_USAGE:
+		ld hl, RS_U_MSG
+		call disp_str
+RS_DONE:
+		ret
+RS_U_MSG:
+		defm  " Usage |ROMSET,<CONFIG>",0x0d,0x0a,0x0d,0x0a,0x00
 
 cr_nl:
 		push af

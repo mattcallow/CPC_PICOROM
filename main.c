@@ -156,31 +156,12 @@ int load_upper_rom(const TCHAR* path, int bank) {
     return ret;
 }
 
-int __not_in_flash_func(find_active_config)() 
+bool __not_in_flash_func(load_config)(const TCHAR *filename) 
 {
     FIL fp;
-    TCHAR buf[10];
-    int cfg = 0;
-    if (f_open(&fp, "DEFAULT.CFG", FA_READ)) {
-        return 0; // no active config, so use 0
-    }
-    
-    f_gets(buf, sizeof(buf), &fp);
-    if (buf[0] >= '0' && buf[0] <= '9') {
-        cfg = buf[0] - '0';
-    }
-    f_close(&fp);
-    debug("found active config");
-    return cfg;
-}
-
-bool __not_in_flash_func(load_config)(int slot) 
-{
-    FIL fp;
-    TCHAR buf[80];
-    sprintf(buf, "%d.CFG", slot);
-    debug(buf);
-    if (f_open(&fp, buf, FA_READ)) {
+    TCHAR buf[256];
+    debug(filename);
+    if (f_open(&fp, filename, FA_READ)) {
         return false;
     }
     while(!f_eof(&fp)) {
@@ -231,9 +212,6 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_PREFIX_BYTE 0xfc
 #define CMD_PICOLOAD 0xff
 #define CMD_LED 0xfe
-#define CMD_CFGLOAD 0xFD
-#define CMD_CFGSAVE 0xFC
-#define CMD_CFGDEF 0xFA
 
 #define CMD_ROMDIR1		0x1
 #define CMD_ROMDIR2		0x2
@@ -245,13 +223,15 @@ void __not_in_flash_func(emulate)(void)
 #define CMD_ROMIN 0x10
 #define CMD_ROMOUT 0x11
 
+#define CMD_ROMSET 0x12
+
 void __not_in_flash_func(handle_latch)(void)
 {
     int cmd = 0;
     int list_index = 0;
     int num_params = 0;
     int params[4];
-    char buf[32];
+    char buf[256];
     FRESULT res;
     DIR dir;
     FILINFO fno;
@@ -344,39 +324,25 @@ void __not_in_flash_func(handle_latch)(void)
                         }
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
-                        break;
-                        /*
-                    case CMD_CFGLIST1: // list config
-                        list_index = 0;
-                        cfg = (config_t *)__CONFIG_START;
-                        // fall through
-                    case CMD_CFGLIST2: // next config
-                        if (cfg->magic == CONFIG_MAGIC && cfg->ver == CONFIG_VER) {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d:%c%s", list_index, cfg->active?'*':' ', cfg->desc);
-                        } else {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: -unused-", list_index);
-                        }
-                        UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
-                        UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
-                        if (list_index < MAX_CONFIG) {
-                            list_index++;
-                            cfg++;
-                        } else {
-                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
-                        }
-                        UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        cmd = 0;
-                        break;        
-                        */                
+                        break;              
                     case CMD_ROMIN: // Load ROM into bank
                         num_params = 2;
                         break;
                     case CMD_ROMOUT: // unload ROM from bank
-                    case CMD_LED: // LED
-                    case CMD_CFGLOAD:
-                    case CMD_CFGSAVE:
-                    case CMD_CFGDEF:
+                    case CMD_LED: 
                         num_params = 1;
+                        break;
+                    case CMD_ROMSET:
+                        memset(buf, 0, sizeof(buf));
+                        num_params =  pio_sm_get_blocking(pio, sm)  & 0xff; // get string length
+                        for (int i=0;i<num_params;i++) {
+                            buf[i] = pio_sm_get_blocking(pio, sm)  & 0xff;  // read string info buffer
+                        }
+                        CPC_ASSERT_RESET();
+                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x80], "np:%d buf:%s", num_params, buf); // debug
+                        load_config(buf);
+                        CPC_RELEASE_RESET();
+                        cmd = 0;
                         break;
                     case CMD_PICOLOAD:
                         CPC_ASSERT_RESET();
@@ -417,42 +383,19 @@ void __not_in_flash_func(handle_latch)(void)
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             CPC_RELEASE_RESET();
                             break;
-                        case CMD_CFGSAVE:
-                            // TODO check bounds
-                            //save_config(params[0], false);
-                            UPPER_ROMS[rom_bank][RESP_BUF]++;
-                            break; 
-                        case CMD_CFGLOAD:
-                            // TODO check bounds
-                            CPC_ASSERT_RESET();
-                            load_config(params[0]);
-                            UPPER_ROMS[rom_bank][RESP_BUF]++;
-                            CPC_RELEASE_RESET();
-                            break; 
                         case CMD_LED:
                             //printf("LED,%d latch=%d num_params=%d\n", params[0], latch, num_params);
                             gpio_put(PICO_DEFAULT_LED_PIN, params[0]!=0);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             break;
-                        case CMD_CFGDEF:
-                            // TODO check bounds
-                            #ifdef DEBUG_CONFIG
-                            printf("active,%d latch=%d num_params=%d\n", params[0], latch, num_params);
-                            #endif
-                            //save_config(params[0], true);
-                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
-                            UPPER_ROMS[rom_bank][RESP_BUF]++;
-                            break;                      
+
                     }
                     cmd = 0;
                 }
         }
     }
 }
-
-
-
 
 void cpc_mode() {
     CPC_ASSERT_RESET();
@@ -461,44 +404,14 @@ void cpc_mode() {
         INSERT_UPPER_ROM(i , -1);
     }
     if (f_mount(&filesystem, "", 1)) fatal(3);
-    int c = find_active_config();
-    if (!load_config(c)) {
+    if (!load_config("DEFAULT.CFG")) {
         if (load_lower_rom("OS_464.ROM")) fatal(4);
         //debug("OS loaded");
         if (load_upper_rom("BASIC_1.0.ROM", 0)) fatal(5);
         //debug("basic loaded");
-        load_upper_rom("Chuckie.rom", 1);
-        load_upper_rom("picorom.rom", 2);
-        load_upper_rom("Arkanoid.rom", 3);
-        load_upper_rom("Utopia_v1_25b.ROM", 4);
-        load_upper_rom("Thrust.ROM", 5);
-        load_upper_rom("Donkey_Kong.rom", 6);
+        load_upper_rom("picorom.rom", 1);
     }
 
-
-/*
-#ifdef DEBUG_CONFIG
-    printf("rom_index is 0x%0x - listing ROMs\n", rom_index);
-    for (int i=0;i<MAX_ROMS;i++) {
-        rom_index_t *idx = &rom_index[i];
-        if (idx->rom_type != 0xff) {
-            printf("%3d 0x%02x %s 0x%0x %x %x %x\n", i, idx->rom_type, idx->name, (void *)__ROM_START+INDEX_SIZE, __ROM_START, INDEX_SIZE, ROM_SIZE);
-        }
-    }
-#endif
-    int c = find_active_config();
-    if (c<0) fatal(1);
-    if (load_config(c)) {
-#ifdef DEBUG_CONFIG
-        printf("Config loaded\n");
-#endif
-    } else {
-#ifdef DEBUG_CONFIG
-        printf("Config invalid\n");
-#endif
-        fatal(2);
-    }
-*/
     // overclock - pick the lowest freq that works reliably
     //set_sys_clock_khz(200000, true);
     //set_sys_clock_khz(225000, true);
