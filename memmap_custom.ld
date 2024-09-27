@@ -21,7 +21,7 @@
     __stack (== StackTop)
 */
 
-__DRIVE_LEN = 1024k;
+__DRIVE_LEN = 1536k;
 __FLASH_START = 0x10000000;
 __FLASH_LEN = 2048k - __DRIVE_LEN;
 __DRIVE_START = __FLASH_START + __FLASH_LEN;

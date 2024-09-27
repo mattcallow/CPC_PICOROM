@@ -12,8 +12,9 @@
 extern uint32_t __DRIVE_START[];
 extern uint32_t __DRIVE_LEN[];
 
+// 1.5MB disk
 #define FAT_BLOCK_SIZE         512
-#define FAT_BLOCK_NUM          2048
+#define FAT_BLOCK_NUM          3072
 
 bool flash_fat_read(int block, uint8_t *buffer);
 bool flash_fat_write(int block, uint8_t *buffer);

@@ -3,12 +3,6 @@
 #include <tusb.h>
 #include "flash.h"
 
-
-// 1MB disk
-#define  DISK_BLOCK_NUM  2048
-#define  DISK_BLOCK_SIZE 512
-
-
 // whether host does safe-eject
 static bool ejected = false;
 
@@ -30,7 +24,7 @@ void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16
     (void) lun;
 
     const char vid[] = "TinyUSB";
-    const char pid[] = "Mass Storage";
+    const char pid[] = "PicoROM";
     const char rev[] = "1.0";
 
     memcpy(vendor_id  , vid, strlen(vid));
@@ -57,8 +51,8 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun)
 void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size)
 {
     (void) lun;
-    *block_count = DISK_BLOCK_NUM;
-    *block_size  = DISK_BLOCK_SIZE;
+    *block_count = FAT_BLOCK_NUM;
+    *block_size  = FAT_BLOCK_SIZE;
 }
 
 // Invoked when received Start Stop Unit command
@@ -86,7 +80,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buff
 {
     (void) lun;
     // out of ramdisk
-    if (lba >= DISK_BLOCK_NUM) {
+    if (lba >= FAT_BLOCK_NUM) {
         printf("read10 out of ramdisk: lba=%u\n", lba);
         return -1;
     }
@@ -107,7 +101,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* 
 {
     (void) lun;
     // out of ramdisk
-    if (lba >= DISK_BLOCK_NUM) {
+    if (lba >= FAT_BLOCK_NUM) {
         printf("write10 out of ramdisk: lba=%u\n", lba);
         return -1;
     }

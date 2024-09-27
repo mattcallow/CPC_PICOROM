@@ -37,6 +37,11 @@ DRESULT disk_write(BYTE drv, const BYTE *buff, LBA_t sector, UINT count) {
 }
 
 DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
+    if (ctrl == GET_SECTOR_COUNT) {
+        *(LBA_t *)buff = (FAT_BLOCK_NUM * FAT_BLOCK_SIZE)/  FF_MAX_SS;
+    } else if (ctrl == GET_BLOCK_SIZE) {
+        *(DWORD *)buff = FLASH_SECTOR_SIZE / FF_MAX_SS;
+    }
     return RES_OK;
 }
 

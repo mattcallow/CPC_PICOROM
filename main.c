@@ -69,8 +69,6 @@ const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WR
 #define CPC_ASSERT_RESET()    gpio_set_dir(RESET_GPIO, GPIO_OUT)
 #define CPC_RELEASE_RESET()   gpio_set_dir(RESET_GPIO, GPIO_IN)
 
-int current_config = -1;
-
 
 void fatal(int flashes) {
     while(1) {
@@ -82,6 +80,29 @@ void fatal(int flashes) {
         }
         sleep_ms(500);
     }
+}
+
+static FATFS filesystem;
+
+void format() {
+    FRESULT res;        /* API result code */
+    FIL fp;
+    BYTE work[FF_MAX_SS]; /* Work area (larger is better for processing time) */
+    MKFS_PARM params = {
+        FM_FAT,
+        1,
+        0,
+        0,
+        0
+    };
+    res = f_mkfs("", &params, work, sizeof(work));
+    if (res) fatal(res);
+    f_mount(&filesystem, "", 1);
+    f_setlabel("PICOROM");
+    f_open(&fp, "README.TXT", FA_CREATE_ALWAYS|FA_WRITE);
+    f_puts("Welcome to PICOROM\n", &fp);
+    f_close(&fp);
+
 }
 // some code from https://github.com/oyama/pico-usb-flash-drive
 
@@ -101,28 +122,40 @@ static void button_task(void) {
         while(bb_get_bootsel_button());
         // turn off LED
         gpio_put(PICO_DEFAULT_LED_PIN, false);
+        format();
         // and reset
         watchdog_enable(1, 1);
         while(1);
     }
 }
 
-static FATFS filesystem;
+// flash the LED 
+void led_task() {
+    static int64_t timer = 0;
+    static bool led = false;
+
+    if (to_ms_since_boot(get_absolute_time()) -  timer > 500) {
+        gpio_put(PICO_DEFAULT_LED_PIN, led);
+        timer = to_ms_since_boot(get_absolute_time()) + 500;
+        led = !led;
+    }
+}
+
 
 void usb_mode() {
     board_init();
     tud_init(BOARD_TUD_RHPORT);
     stdio_init_all();  
-    f_mount(&filesystem, "", 1);
+    f_unmount("");
     while(1) // the mainloop
     {
         button_task();
         tud_task(); // device task
+        led_task();
     } 
 }
 
 void debug(const char *msg) {
-    return;
     FIL fp;
     UINT l;
     f_open(&fp, "DEBUG.TXT", FA_WRITE|FA_OPEN_APPEND);
@@ -267,7 +300,7 @@ void __not_in_flash_func(handle_latch)(void)
                             f_closedir(&dir);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
                         } else {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%10u %s", fno.fsize, fno.fname);
+                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%-32s %6u", fno.fname, fno.fsize);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                         }
@@ -275,10 +308,9 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;
                     case CMD_ROMLIST1: 
-                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d Config: %d Banks: %d", 
+                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d Banks: %d", 
                                 VER_MAJOR, VER_MINOR, VER_PATCH,
                                 UPPER_ROMS[rom_bank][1],UPPER_ROMS[rom_bank][2],UPPER_ROMS[rom_bank][3],
-                                current_config,
                                 NUM_ROM_BANKS
                             );
                         UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
@@ -403,12 +435,16 @@ void cpc_mode() {
         upper_roms[i] = -1;
         INSERT_UPPER_ROM(i , -1);
     }
-    if (f_mount(&filesystem, "", 1)) fatal(3);
+    if (f_mount(&filesystem, "", 1)) {
+        format();
+    }
+    debug("Drive mounted");
     if (!load_config("DEFAULT.CFG")) {
-        if (load_lower_rom("OS_464.ROM")) fatal(4);
-        //debug("OS loaded");
-        if (load_upper_rom("BASIC_1.0.ROM", 0)) fatal(5);
-        //debug("basic loaded");
+        debug("default config failed");
+        if (load_lower_rom("OS_6128.ROM")) fatal(4);
+        debug("OS loaded");
+        if (load_upper_rom("BASIC_1.1.ROM", 0)) fatal(5);
+        debug("basic loaded");
         load_upper_rom("picorom.rom", 1);
     }
 
@@ -458,10 +494,7 @@ int main() {
         }
     }
     // If we get here assume that we are not plugged in to a CPC - emuulate a USB drive
-        if (f_mount(&filesystem, "", 1)) fatal(3);
-
     debug("Entering USB mode");
-    f_unmount("");
     usb_mode();
 }
 

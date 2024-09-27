@@ -30,32 +30,19 @@ CMD_ROMSET:		EQU $12
 		jp INIT
 		jp BOOT
 		jp LED
-		jp ROMDIR
-		jp CFGLIST
-		jp ROMIN
-		jp ROMOUT
-		jp ROMLIST
-		jp CFGLOAD
-		jp CFGSAVE
-		jp CFGDEF
-		jp ROMLIST		; ROMS is an alias for ROMLIST
 		jp ROMSET
+		jp ROMDIR
+		jp ROMLIST
+		jp ROMOUT
 
 NAME_TABLE:	
 		defm  "PICO RO",'M'+128
-		defm  "PICOLOA", 'D'+128
+		defm  "PUS", 'B'+128
 		defm  "LE", 'D'+128
-		defm  "ROMDI", 'R'+128
-		defm  "CFGLIS", 'T'+128
-		defm  "ROMI", 'N'+128
-		defm  "ROMOU", 'T'+128
-		defm  "ROMLIS",'T'+128
-		defm  "CFGLOA",'D'+128
-		defm  "CFGSAV",'E'+128
-		defm  "CFGDE", 'F'+128
-		defm  "ROM", 'S'+128
 		defm  "ROMSE", 'T'+128
-
+		defm  "PDI", 'R'+128
+		defm  "ROM", 'S'+128
+		defm  "ROMOU", 'T'+128
 		defb    0
 INIT:	
 		push HL

@@ -1,5 +1,8 @@
 #include "flash.h"
 
+// TODO - add wear leveling
+// e.g. https://github.com/earlephilhower/SPIFTL
+
 bool flash_fat_read(int block, uint8_t *buffer) {
     const uint8_t *data = (uint8_t *)((uint32_t)__DRIVE_START + FAT_BLOCK_SIZE * block);
     memcpy(buffer, data, FAT_BLOCK_SIZE);
