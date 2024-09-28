@@ -2,7 +2,7 @@
 ; 
 ver_major		EQU 3
 ver_minor		EQU 0
-ver_patch		EQU 0
+ver_patch		EQU 1
 TXT_OUTPUT: 	EQU $BB5A
 KM_WAIT_KEY:	EQU $BB18
 IO_PORT:		EQU $DFFC
@@ -147,6 +147,20 @@ CFGLIST: 	LIST_COMMAND CMD_CFGLIST1, CMD_CFGLIST2
 ROMDIR:		LIST_COMMAND CMD_ROMDIR1, CMD_ROMDIR2
 ROMLIST:	LIST_COMMAND CMD_ROMLIST1, CMD_ROMLIST2
 
+		MACRO WAIT_FOR_COMPLETION
+		; wait for command to finish. Last seq value in A
+		; display the result
+		LOCAL wait
+		ld	hl, RESP_BUF
+.wait
+		cp (hl)			; wait for the sequence number to be updated
+		jr z, wait
+		inc	hl		; skip status code # FIXME
+		inc hl		; skip data type # FIXME
+		inc hl		; point to start of response
+		call disp_str
+		call cr_nl
+		ENDM
 
 ROMIN:
 		cp	2
@@ -173,6 +187,8 @@ ROMIN:
 		inc	HL
 		ld 	D,(HL)
 		ex  DE, HL			; string address now in HL
+		ld	de, RESP_BUF
+		ld	d, (de)	; save current sequence number in D
 	; send filename - length is in A
 RI_LOOP:
 		ld	c,(HL)
@@ -181,6 +197,9 @@ RI_LOOP:
 		dec	A
 		jr	nz,	RI_LOOP
 
+		; wait for completion
+		ld 	a,d			; get current seqeuence number
+		WAIT_FOR_COMPLETION
 		jr	RI_DONE
 RI_USAGE:
 		ld hl, RI_U_MSG
@@ -203,7 +222,7 @@ ROMSET:	; load a romset from file
 
 		ld	A,(HL)			; length
 		cp	0
-		jr	z,	RS_DONE		; no file given
+		jr	z,	RS_USAGE	; no file given
 
 		ld BC, IO_PORT 	; command prefix
 		out (c), c
@@ -217,8 +236,11 @@ ROMSET:	; load a romset from file
 		inc	HL
 		ld 	D,(HL)
 		ex  DE, HL			; string address now in HL
-		; send filename - length is in A
 
+		ld	de, RESP_BUF
+		ld	d, (de)	; save current sequence number in D
+
+		; send filename - length is in A
 RSLOOP:
 		ld	c,(HL)
 		out	(c),C
@@ -226,7 +248,9 @@ RSLOOP:
 		dec	A
 		jr	nz,	RSLOOP
 
-
+		; wait for completion
+		ld 	a,d			; get saved seqeuence number
+		WAIT_FOR_COMPLETION
 		jr	RS_DONE
 RS_USAGE:
 		ld hl, RS_U_MSG

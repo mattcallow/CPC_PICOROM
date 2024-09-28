@@ -2,8 +2,10 @@
 // Matt Callow March 2023
 // Updated Sept 2024
 #undef DEBUG_CONFIG
+#undef DEBUG_TO_FILE
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <tusb.h>
 #include <bsp/board.h>
 #include <ff.h>
@@ -23,9 +25,9 @@
 
 #define VER_MAJOR 3
 #define VER_MINOR 0
-#define VER_PATCH 0
+#define VER_PATCH 1
 // not enough RAM for 16 banks
-#define NUM_ROM_BANKS 12
+#define NUM_ROM_BANKS 14
 #define ROM_SIZE 16384
 // RAM copies of the ROMs
 #undef USE_XIP_CACHE_AS_RAM
@@ -36,6 +38,9 @@ static uint8_t  LOWER_ROM[ROM_SIZE];
 #endif
 static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
 static volatile uint8_t rom_bank = 0;
+static volatile  uint16_t upper_roms = 0; // bitmask to indicate which ROM banks are active
+
+static FATFS filesystem;
 
 // values from the linker
 extern uint32_t __FLASH_START[];
@@ -44,8 +49,6 @@ extern uint32_t __DRIVE_START[];
 extern uint32_t __DRIVE_LEN[];
 
 
-static int upper_roms[NUM_ROM_BANKS];
-static int lower_rom;
 const uint32_t ADDRESS_BUS_MASK = 0x3fff;
 const uint32_t DATA_BUS_MASK    = 0xff << 14;
 const uint32_t ROMEN_GPIO = 22;
@@ -58,17 +61,8 @@ const uint32_t RESET_GPIO = 28;
 const uint32_t RESET_MASK = 1 << RESET_GPIO;
 const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|RESET_MASK;
 
-#define INSERT_UPPER_ROM(bank, rom_number) { \
-    upper_roms[bank] = rom_number; \
-    if (rom_number < 0) { \
-        memset(UPPER_ROMS[bank], 0xff, ROM_SIZE);\
-    }\
-} 
-
-
 #define CPC_ASSERT_RESET()    gpio_set_dir(RESET_GPIO, GPIO_OUT)
 #define CPC_RELEASE_RESET()   gpio_set_dir(RESET_GPIO, GPIO_IN)
-
 
 void fatal(int flashes) {
     while(1) {
@@ -81,8 +75,6 @@ void fatal(int flashes) {
         sleep_ms(500);
     }
 }
-
-static FATFS filesystem;
 
 void format() {
     FRESULT res;        /* API result code */
@@ -100,7 +92,7 @@ void format() {
     f_mount(&filesystem, "", 1);
     f_setlabel("PICOROM");
     f_open(&fp, "README.TXT", FA_CREATE_ALWAYS|FA_WRITE);
-    f_puts("Welcome to PICOROM\n", &fp);
+    f_puts("Welcome to PICOROM\nCopy your ROMs and config files here.\nBe kind to the Flash memory - there is no wear leveling\n", &fp);
     f_close(&fp);
 
 }
@@ -141,7 +133,6 @@ void led_task() {
     }
 }
 
-
 void usb_mode() {
     board_init();
     tud_init(BOARD_TUD_RHPORT);
@@ -156,11 +147,13 @@ void usb_mode() {
 }
 
 void debug(const char *msg) {
+#ifdef DEBUG_TO_FILE
     FIL fp;
     UINT l;
     f_open(&fp, "DEBUG.TXT", FA_WRITE|FA_OPEN_APPEND);
     f_printf(&fp, "%06d: %s\n", to_ms_since_boot(get_absolute_time()), msg);
     f_close(&fp);
+#endif
 }
 
 
@@ -176,34 +169,45 @@ int load_rom(const TCHAR* path, void* dest) {
     return 0;
 }
 
-
 int load_lower_rom(const TCHAR* path) {
     return load_rom(path, (void *)LOWER_ROM);
+}
+
+void remove_upper_rom(int bank) {
+    upper_roms &= ~(1<<bank);
 }
 
 int load_upper_rom(const TCHAR* path, int bank) {
     int ret = load_rom(path, (void *)UPPER_ROMS[bank]);
     if (ret == 0) {
-        upper_roms[bank] = 1;
+        upper_roms |= (1<<bank);
     }
     return ret;
 }
 
-bool __not_in_flash_func(load_config)(const TCHAR *filename) 
+bool load_config(const TCHAR *filename) 
 {
     FIL fp;
     TCHAR buf[256];
+    char *token;
+	const char delim[]=": 	";
+ 	int bank;
+
     debug(filename);
     if (f_open(&fp, filename, FA_READ)) {
         return false;
     }
+    upper_roms = 0;
     while(!f_eof(&fp)) {
-         f_gets(buf, sizeof(buf), &fp);
-         if (buf[0] == '#') continue;
-         if (buf[0] == 'L' && buf[1] == ':') {
-            load_lower_rom(&buf[2]);
-        } else if (buf[0] >= '0' && buf[0] <= '9' && buf[1] == ':') {
-            load_upper_rom(&buf[2], buf[0] - '0');
+        f_gets(buf, sizeof(buf), &fp);
+        token=strtok(buf, delim);
+        if (token == NULL) {
+            continue;
+        } else if (*token == 'L') {
+            load_lower_rom(strtok(NULL, delim));
+        } else if (isdigit(*token)) {
+            bank = atoi(token);
+            load_upper_rom(strtok(NULL, delim), bank);
         }
     }
     f_close(&fp);
@@ -220,7 +224,7 @@ void __not_in_flash_func(emulate)(void)
         uint8_t data;
         if ((gpio & ROMEN_MASK) == 0) {
             if (gpio & A15_MASK) {
-                if (upper_roms[rom_bank] >= 0) {
+                if (upper_roms & (1<<rom_bank)) {
                     // output upper ROM data
                     gpio_put_masked(DATA_BUS_MASK, UPPER_ROMS[rom_bank][gpio&ADDRESS_BUS_MASK] << 14);
                     gpio_set_dir_out_masked(DATA_BUS_MASK);
@@ -232,7 +236,6 @@ void __not_in_flash_func(emulate)(void)
                 // output lower ROM data
                 gpio_put_masked(DATA_BUS_MASK, LOWER_ROM[gpio&ADDRESS_BUS_MASK] << 14);
                 gpio_set_dir_out_masked(DATA_BUS_MASK);
-
             }
         } else {                           
             // set data bus as input (HiZ)
@@ -308,10 +311,10 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;
                     case CMD_ROMLIST1: 
-                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d Banks: %d", 
+                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d ROM Mask: %04X", 
                                 VER_MAJOR, VER_MINOR, VER_PATCH,
                                 UPPER_ROMS[rom_bank][1],UPPER_ROMS[rom_bank][2],UPPER_ROMS[rom_bank][3],
-                                NUM_ROM_BANKS
+                                upper_roms
                             );
                         UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                         UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
@@ -325,29 +328,28 @@ void __not_in_flash_func(handle_latch)(void)
                             uint8_t major = UPPER_ROMS[list_index][1];
                             uint8_t minor = UPPER_ROMS[list_index][2];
                             uint8_t patch = UPPER_ROMS[list_index][3];
-                            if (type < 2 || type == 0x80) {
-                                uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
-                                int i=0;
-                                do {
-                                    buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
-                                } while(i <31 && UPPER_ROMS[list_index][name_table+i++]< 0x80);
-                                buf[i] = 0;
-                            } else if (type == 2) {
-                                strcpy(buf, "-extension ROM- ");
+                            if (upper_roms & (1<<list_index)) {
+                                if (type < 2 || type == 0x80) {
+                                    uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
+                                    int i=0;
+                                    do {
+                                        buf[i] = UPPER_ROMS[list_index][name_table+i] & 0x7f;
+                                    } while(i <31 && UPPER_ROMS[list_index][name_table+i++]< 0x80);
+                                    buf[i] = 0;
+                                } else if (type == 2) {
+                                    strcpy(buf, "-extension ROM- ");
+                                }
+                                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %02x %-16s %d.%d%d", 
+                                    list_index, 
+                                    type, 
+                                    buf,
+                                    major, 
+                                    minor, 
+                                    patch
+                                );
                             } else {
-                                strcpy(buf, " -Not present-  ");
-                                major = 0;
-                                minor = 0;
-                                patch = 0;
+                                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: -- Not present", list_index);
                             }
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %02x %-16s %d.%d%d", 
-                                list_index, 
-                                type, 
-                                buf,
-                                major, 
-                                minor, 
-                                patch
-                            );
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                             list_index++;
@@ -370,10 +372,17 @@ void __not_in_flash_func(handle_latch)(void)
                         for (int i=0;i<num_params;i++) {
                             buf[i] = pio_sm_get_blocking(pio, sm)  & 0xff;  // read string info buffer
                         }
-                        CPC_ASSERT_RESET();
                         sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x80], "np:%d buf:%s", num_params, buf); // debug
-                        load_config(buf);
-                        CPC_RELEASE_RESET();
+                        if (!load_config(buf)) {
+                            UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                            UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                            strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load Config");
+                            UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        } else {
+                            CPC_ASSERT_RESET();
+                            sleep_ms(10);
+                            CPC_RELEASE_RESET();
+                        }
                         cmd = 0;
                         break;
                     case CMD_PICOLOAD:
@@ -405,19 +414,23 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMIN,%d, %s", params[0], buf);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            //if (params[1] >= MAX_ROMS) params[1] = MAX_ROMS-1;
-                            if (params[1] < 0) params[1] = 0;
-                            CPC_ASSERT_RESET();
-                            load_upper_rom(buf, params[0]);
-                            UPPER_ROMS[rom_bank][RESP_BUF]++;
-                            CPC_RELEASE_RESET();
+                            if (load_upper_rom(buf, params[0])) {
+                                UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                                UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                                strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load ROM");
+                                UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            } else {
+                                CPC_ASSERT_RESET();
+                                sleep_ms(10);
+                                CPC_RELEASE_RESET();
+                            }
                             break;
                         case CMD_ROMOUT:
                             CPC_ASSERT_RESET();
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            INSERT_UPPER_ROM(params[0], -1); // remove ROM
+                            remove_upper_rom(params[0]);
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                             CPC_RELEASE_RESET();
                             break;
@@ -437,10 +450,7 @@ void __not_in_flash_func(handle_latch)(void)
 
 void cpc_mode() {
     CPC_ASSERT_RESET();
-    for (int i=0;i<NUM_ROM_BANKS;i++) {
-        upper_roms[i] = -1;
-        INSERT_UPPER_ROM(i , -1);
-    }
+    upper_roms = 0;
     if (f_mount(&filesystem, "", 1)) {
         format();
     }
