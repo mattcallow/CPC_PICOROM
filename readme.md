@@ -10,8 +10,8 @@ You have now programed your Pico. It should reboot and appear a USB drive called
 
 ### Obtain ROM images
 You will need some CPC ROM images. You will also need the picorom.rom file, which is in the firmware directory. 
-The ROM images need to be plain ROM dumps, with no additional headers. They should be 16384 bytes in size. There are many ROM iamges available here https://www.cpcwiki.eu/index.php/ROM_List
-Be careful as some of these images contain an additional header, which you will need to remove first.  
+There are many ROM iamges available here https://www.cpcwiki.eu/index.php/ROM_List  
+If the PICOROM detects that the ROM file has a AMSDOS header, it will be removed before loading. 
 * Copy your ROM images onto the PICOROM USB drive
 
 As a minimm you will need OS_6128.ROM and BASIC_1.1.ROM. You should also add picorom.rom 
@@ -26,7 +26,7 @@ You can create config files from the PC to define what ROMS to load. These files
 <SLOT>:<ROMFILE>
 ```
 
-Where ```<SLOT>``` = L for lower ROM or 0-9 for upper ROM bank  
+Where ```<SLOT>``` = L for lower ROM or 0-13 for upper ROM bank  
 and ```<ROMFILE>``` = the filename of the ROM to load
 
 For example:

@@ -8,3 +8,4 @@ z80/picorom.rom
 z80/picorom.rom.h
 romtool/*.bin
 .vscode/*
+.DS_Store

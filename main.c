@@ -25,7 +25,7 @@
 
 #define VER_MAJOR 3
 #define VER_MINOR 0
-#define VER_PATCH 1
+#define VER_PATCH 2
 // not enough RAM for 16 banks
 #define NUM_ROM_BANKS 14
 #define ROM_SIZE 16384
@@ -157,19 +157,24 @@ void debug(const char *msg) {
 }
 
 
-int load_rom(const TCHAR* path, void* dest) {
+bool load_rom(const TCHAR* path, void* dest) {
     FIL fp;
     FRESULT fr;
     UINT bytes_read;
-    fr = f_open(&fp, path, FA_READ);
-    if (fr) return (int)fr;
+    FILINFO fno;
+    if (f_stat(path, &fno) != FR_OK) return false;
+    if (f_open(&fp, path, FA_READ) != FR_OK) return false;
+    if (fno.fsize == 16*1024 + 128) {
+        // assume the ROM has a header - discard it
+        fr = f_read(&fp, dest, 128, &bytes_read);
+    }
     fr = f_read(&fp, dest, ROM_SIZE, &bytes_read);
     f_close(&fp);
-    if (fr) return (int)fr;
-    return 0;
+    if (fr != FR_OK) return false;
+    return true;
 }
 
-int load_lower_rom(const TCHAR* path) {
+bool load_lower_rom(const TCHAR* path) {
     return load_rom(path, (void *)LOWER_ROM);
 }
 
@@ -177,9 +182,9 @@ void remove_upper_rom(int bank) {
     upper_roms &= ~(1<<bank);
 }
 
-int load_upper_rom(const TCHAR* path, int bank) {
-    int ret = load_rom(path, (void *)UPPER_ROMS[bank]);
-    if (ret == 0) {
+bool load_upper_rom(const TCHAR* path, int bank) {
+    bool ret = load_rom(path, (void *)UPPER_ROMS[bank]);
+    if (ret) {
         upper_roms |= (1<<bank);
     }
     return ret;
@@ -414,7 +419,7 @@ void __not_in_flash_func(handle_latch)(void)
                             sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMIN,%d, %s", params[0], buf);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
-                            if (load_upper_rom(buf, params[0])) {
+                            if (!load_upper_rom(buf, params[0])) {
                                 UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                                 UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                                 strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load ROM");
@@ -457,9 +462,9 @@ void cpc_mode() {
     debug("Drive mounted");
     if (!load_config("DEFAULT.CFG")) {
         debug("default config failed");
-        if (load_lower_rom("OS_6128.ROM")) fatal(4);
+        if (!load_lower_rom("OS_6128.ROM")) fatal(4);
         debug("OS loaded");
-        if (load_upper_rom("BASIC_1.1.ROM", 0)) fatal(5);
+        if (!load_upper_rom("BASIC_1.1.ROM", 0)) fatal(5);
         debug("basic loaded");
         load_upper_rom("picorom.rom", 1);
     }
