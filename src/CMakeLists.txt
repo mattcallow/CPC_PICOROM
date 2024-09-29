@@ -37,7 +37,7 @@ pico_generate_pio_header(cpc_rom_emulator ${CMAKE_CURRENT_LIST_DIR}/latch.pio)
 
 add_custom_command(OUTPUT "z80/picorom.rom"
 	COMMAND "make"
-    WORKING_DIRECTORY "../z80"
+    WORKING_DIRECTORY "../src/z80"
 	DEPENDS z80/picorom.s
 	)
 

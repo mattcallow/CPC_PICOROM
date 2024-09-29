@@ -1,11 +1,10 @@
 build/*
 roms/*
-z80/picorom.sym
-z80/picorom.lis
-z80/picorom.map
-z80/picorom.o
-z80/picorom.rom
-z80/picorom.rom.h
-romtool/*.bin
+src/z80/picorom.sym
+src/z80/picorom.lis
+src/z80/picorom.map
+src/z80/picorom.o
+src/z80/picorom.rom
+src/z80/picorom.rom.h
 .vscode/*
 .DS_Store
