@@ -1,7 +1,7 @@
 // CPC ROM emulator
 // Matt Callow March 2023
 // Updated Sept 2024
-#undef DEBUG_CONFIG
+#define DEBUG_CONFIG
 #undef DEBUG_TO_FILE
 #include <string.h>
 #include <stdio.h>
@@ -26,8 +26,8 @@
 #define VER_MAJOR 3
 #define VER_MINOR 0
 #define VER_PATCH 2
-// not enough RAM for 16 banks
-#define NUM_ROM_BANKS 14
+// not enough RAM for 16
+#define NUM_ROM_BANKS 12
 #define ROM_SIZE 16384
 // RAM copies of the ROMs
 #undef USE_XIP_CACHE_AS_RAM
@@ -92,7 +92,7 @@ void format() {
     f_mount(&filesystem, "", 1);
     f_setlabel("PICOROM");
     f_open(&fp, "README.TXT", FA_CREATE_ALWAYS|FA_WRITE);
-    f_puts("Welcome to PICOROM\nCopy your ROMs and config files here.\nBe kind to the Flash memory - there is no wear leveling\n", &fp);
+    f_puts("Welcome to PICOROM\nCopy your ROMs and config files here.\n", &fp);
     f_close(&fp);
 
 }
@@ -114,6 +114,8 @@ static void button_task(void) {
         while(bb_get_bootsel_button());
         // turn off LED
         gpio_put(PICO_DEFAULT_LED_PIN, false);
+        flash_format();
+        flash_init();
         format();
         // and reset
         watchdog_enable(1, 1);
@@ -183,6 +185,7 @@ void remove_upper_rom(int bank) {
 }
 
 bool load_upper_rom(const TCHAR* path, int bank) {
+    if (bank < 0 || bank >= NUM_ROM_BANKS) return false;
     bool ret = load_rom(path, (void *)UPPER_ROMS[bank]);
     if (ret) {
         upper_roms |= (1<<bank);
@@ -295,7 +298,7 @@ void __not_in_flash_func(handle_latch)(void)
                 }
                 break;
             case -1:
-                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "l:%d c:%d np:%d ri:%d p[0]:%d p[1]:%d", latch, cmd, num_params, list_index, params[0], params[1]);
+                sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "l:%d c:%d np:%d ri:%d p[0]:%d p[1]:%d", latch, cmd, num_params, list_index, params[0], params[1]);
                 cmd = latch;
                 num_params = 0;
                 switch(cmd) {
@@ -308,7 +311,7 @@ void __not_in_flash_func(handle_latch)(void)
                             f_closedir(&dir);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // done
                         } else {
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%-32s %6u", fno.fname, fno.fsize);
+                            sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "%-32s %6u", fno.fname, fno.fsize);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                         }
@@ -316,7 +319,7 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;
                     case CMD_ROMLIST1: 
-                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d ROM Mask: %04X", 
+                        sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d ROM Mask: %04X", 
                                 VER_MAJOR, VER_MINOR, VER_PATCH,
                                 UPPER_ROMS[rom_bank][1],UPPER_ROMS[rom_bank][2],UPPER_ROMS[rom_bank][3],
                                 upper_roms
@@ -344,7 +347,7 @@ void __not_in_flash_func(handle_latch)(void)
                                 } else if (type == 2) {
                                     strcpy(buf, "-extension ROM- ");
                                 }
-                                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %02x %-16s %d.%d%d", 
+                                sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: %02x %-16s %d.%d%d", 
                                     list_index, 
                                     type, 
                                     buf,
@@ -353,7 +356,7 @@ void __not_in_flash_func(handle_latch)(void)
                                     patch
                                 );
                             } else {
-                                sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: -- Not present", list_index);
+                                sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: -- Not present", list_index);
                             }
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
@@ -377,11 +380,11 @@ void __not_in_flash_func(handle_latch)(void)
                         for (int i=0;i<num_params;i++) {
                             buf[i] = pio_sm_get_blocking(pio, sm)  & 0xff;  // read string info buffer
                         }
-                        sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+0x80], "np:%d buf:%s", num_params, buf); // debug
+                        sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+0x80], "np:%d buf:%s", num_params, buf); // debug
                         if (!load_config(buf)) {
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
-                            strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load Config");
+                            strcpy((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load Config");
                             UPPER_ROMS[rom_bank][RESP_BUF]++;
                         } else {
                             CPC_ASSERT_RESET();
@@ -416,13 +419,13 @@ void __not_in_flash_func(handle_latch)(void)
                             for (int i=0;i<num_params;i++) {
                                 buf[i] = pio_sm_get_blocking(pio, sm)  & 0xff;  // read string info buffer
                             }
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMIN,%d, %s", params[0], buf);
+                            sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMIN,%d, %s", params[0], buf);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
                             if (!load_upper_rom(buf, params[0])) {
                                 UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                                 UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
-                                strcpy(&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load ROM");
+                                strcpy((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load ROM");
                                 UPPER_ROMS[rom_bank][RESP_BUF]++;
                             } else {
                                 CPC_ASSERT_RESET();
@@ -432,7 +435,7 @@ void __not_in_flash_func(handle_latch)(void)
                             break;
                         case CMD_ROMOUT:
                             CPC_ASSERT_RESET();
-                            sprintf(&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
+                            sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMOUT,%d", params[0]);
                             if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
                             if (params[0] < 0) params[0] = 0;
                             remove_upper_rom(params[0]);
@@ -490,12 +493,19 @@ int main() {
     hw_clear_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_EN_BITS);
 #endif
 #ifdef DEBUG_CONFIG
+    board_init();
+    tud_init(BOARD_TUD_RHPORT);
     stdio_init_all();
-    while (!tud_cdc_connected()) { sleep_ms(100);  }
+    /*
+    for (int i=0;i<50;i++) {
+        printf("%d ", i);
+        sleep_ms(500);
+    }
+    */
+    //while (!tud_cdc_connected()) { sleep_ms(100);  };
     printf("tud_cdc_connected() %s\n", __TIMESTAMP__);
     printf("__FLASH_START  0x%08x __FLASH_LEN  0x%08x\n", __FLASH_START, __FLASH_LEN);
-    printf("__ROM_START    0x%08x __ROM_LEN    0x%08x\n", __ROM_START, __ROM_LEN);
-    printf("__CONFIG_START 0x%08x __CONFIG_LEN 0x%08x\n", __CONFIG_START, __CONFIG_LEN);
+    printf("__DRIVE_START    0x%08x __DRIVE_LEN    0x%08x\n", __DRIVE_START, __DRIVE_LEN);
 #endif
     gpio_init_mask(FULL_MASK);
     gpio_set_dir_in_masked(FULL_MASK);
@@ -505,6 +515,7 @@ int main() {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 0);
+    flash_init();
 
     CPC_RELEASE_RESET();
 
@@ -515,7 +526,6 @@ int main() {
         }
     }
     // If we get here assume that we are not plugged in to a CPC - emuulate a USB drive
-    debug("Entering USB mode");
     usb_mode();
 }
 

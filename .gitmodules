@@ -1,0 +1,3 @@
+[submodule "src/SPIFTL"]
+	path = src/SPIFTL
+	url = https://github.com/earlephilhower/SPIFTL.git

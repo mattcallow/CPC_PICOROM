@@ -21,7 +21,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPICO_USE_MALLOC_MUTEX=1")
 add_executable(cpc_rom_emulator
     main.c
     fatfs_driver.c
-    flash.c
+    flash.cpp
     usb_msc_driver.c
     usb_descriptors.c
     ${PICO_SDK_PATH}/lib/tinyusb/src/tusb.c
@@ -47,6 +47,7 @@ add_custom_target(generate_rom ALL
 # add fatfs includes
 target_include_directories(cpc_rom_emulator PUBLIC
   fatfs/source
+  SPIFTL
   ${CMAKE_CURRENT_LIST_DIR}
 )
 
@@ -64,7 +65,7 @@ target_link_libraries(cpc_rom_emulator
     hardware_sync
    )
 
-pico_enable_stdio_usb(cpc_rom_emulator 0)
+pico_enable_stdio_usb(cpc_rom_emulator 1)
 pico_enable_stdio_uart(cpc_rom_emulator 0)
 
 # create map/bin/hex/uf2 file in addition to ELF.
@@ -77,4 +78,9 @@ pico_add_extra_outputs(cpc_rom_emulator)
 # Make a copy of the firmware file
 add_custom_command(TARGET cpc_rom_emulator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy cpc_rom_emulator.uf2  ../firmware/cpc_rom_emulator.uf2
+)
+add_compile_definitions(
+    FTL_DEBUG=1
+    FLASH_DEBUG=1
+    MSC_DRIVER_DEBUG=1
 )
