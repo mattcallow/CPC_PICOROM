@@ -1,3 +1,6 @@
 [submodule "src/SPIFTL"]
 	path = src/SPIFTL
 	url = https://github.com/earlephilhower/SPIFTL.git
+[submodule "src/unzipLIB"]
+	path = src/unzipLIB
+	url = https://github.com/bitbank2/unzipLIB.git

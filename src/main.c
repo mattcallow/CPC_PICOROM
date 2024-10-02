@@ -1,7 +1,7 @@
 // CPC ROM emulator
 // Matt Callow March 2023
 // Updated Sept 2024
-#define DEBUG_CONFIG
+#undef DEBUG_CONFIG
 #undef DEBUG_TO_FILE
 #include <string.h>
 #include <stdio.h>

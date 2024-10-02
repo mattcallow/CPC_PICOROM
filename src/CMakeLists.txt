@@ -80,7 +80,7 @@ add_custom_command(TARGET cpc_rom_emulator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy cpc_rom_emulator.uf2  ../firmware/cpc_rom_emulator.uf2
 )
 add_compile_definitions(
-    FTL_DEBUG=1
-    FLASH_DEBUG=1
-    MSC_DRIVER_DEBUG=1
+    FTL_DEBUG=0
+    FLASH_DEBUG=0
+    MSC_DRIVER_DEBUG=0
 )
