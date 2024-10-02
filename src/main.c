@@ -24,8 +24,8 @@
 #undef DEBUG_CONFIG
 #undef DEBUG_TO_FILE
 #define VER_MAJOR 3
-#define VER_MINOR 0
-#define VER_PATCH 2
+#define VER_MINOR 1
+#define VER_PATCH 0
 // not enough RAM for 16
 #define NUM_ROM_BANKS 12
 #define ROM_SIZE 16384
