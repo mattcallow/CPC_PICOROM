@@ -3,6 +3,7 @@
         "*.s": "plaintext",
         "flash.h": "c",
         "xip.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "stdio.h": "c"
     }
 }

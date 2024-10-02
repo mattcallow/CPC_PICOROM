@@ -1,8 +1,6 @@
 // CPC ROM emulator
 // Matt Callow March 2023
 // Updated Sept 2024
-#undef DEBUG_CONFIG
-#undef DEBUG_TO_FILE
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +21,8 @@
 #include "bootsel_button.h"
 #include "flash.h"
 
+#undef DEBUG_CONFIG
+#undef DEBUG_TO_FILE
 #define VER_MAJOR 3
 #define VER_MINOR 0
 #define VER_PATCH 2
