@@ -92,7 +92,8 @@ void format() {
     f_mount(&filesystem, "", 1);
     f_setlabel("PICOROM");
     f_open(&fp, "README.TXT", FA_CREATE_ALWAYS|FA_WRITE);
-    f_puts("Welcome to PICOROM\nCopy your ROMs and config files here.\n", &fp);
+    f_printf(&fp, "Welcome to PICOROM %d.%d.%d\n", VER_MAJOR, VER_MINOR, VER_PATCH );
+    f_printf(&fp, "Copy your ROMs and config files here.\n");
     f_close(&fp);
 
 }
