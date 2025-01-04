@@ -25,9 +25,10 @@
 #undef DEBUG_TO_FILE
 #define VER_MAJOR 3
 #define VER_MINOR 1
-#define VER_PATCH 0
+#define VER_PATCH 1
 // not enough RAM for 16
-#define NUM_ROM_BANKS 12
+// limit to 7 so we don't emulate the DOS ROM
+#define NUM_ROM_BANKS 7
 #define ROM_SIZE 16384
 // RAM copies of the ROMs
 #undef USE_XIP_CACHE_AS_RAM
@@ -37,7 +38,8 @@ static uint8_t *LOWER_ROM = (uint8_t *)0x15000000;
 static uint8_t  LOWER_ROM[ROM_SIZE];
 #endif
 static uint8_t UPPER_ROMS[NUM_ROM_BANKS][ROM_SIZE];
-static volatile uint8_t rom_bank = 0;
+#define NO_ROM 0xff
+static volatile uint8_t rom_bank = 0; // index into upper ROMS, 0xff = no ROM
 static volatile  uint16_t upper_roms = 0; // bitmask to indicate which ROM banks are active
 
 static FATFS filesystem;
@@ -186,7 +188,7 @@ void remove_upper_rom(int bank) {
 }
 
 bool load_upper_rom(const TCHAR* path, int bank) {
-    if (bank < 0 || bank >= NUM_ROM_BANKS) return false;
+    if ((bank < 0) || (bank >= NUM_ROM_BANKS)) return false;
     bool ret = load_rom(path, (void *)UPPER_ROMS[bank]);
     if (ret) {
         upper_roms |= (1<<bank);
@@ -233,13 +235,13 @@ void __not_in_flash_func(emulate)(void)
         uint8_t data;
         if ((gpio & ROMEN_MASK) == 0) {
             if (gpio & A15_MASK) {
-                if (upper_roms & (1<<rom_bank)) {
+                if (rom_bank == NO_ROM) {
+                     // set data bus as input (HiZ)
+                    gpio_set_dir_in_masked(DATA_BUS_MASK);
+                } else {
                     // output upper ROM data
                     gpio_put_masked(DATA_BUS_MASK, UPPER_ROMS[rom_bank][gpio&ADDRESS_BUS_MASK] << 14);
                     gpio_set_dir_out_masked(DATA_BUS_MASK);
-                } else {
-                    // set data bus as input (HiZ)
-                    gpio_set_dir_in_masked(DATA_BUS_MASK);
                 }
             } else {
                 // output lower ROM data
@@ -295,7 +297,8 @@ void __not_in_flash_func(handle_latch)(void)
                         break;
                     default:
                         rom_bank = latch;
-                        if (rom_bank >= NUM_ROM_BANKS) rom_bank = 0;
+                        if (rom_bank >= NUM_ROM_BANKS) rom_bank = NO_ROM;
+                        else if ((upper_roms & (1<<rom_bank)) == 0) rom_bank = NO_ROM;
                 }
                 break;
             case -1:
@@ -421,9 +424,12 @@ void __not_in_flash_func(handle_latch)(void)
                                 buf[i] = pio_sm_get_blocking(pio, sm)  & 0xff;  // read string info buffer
                             }
                             sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "ROMIN,%d, %s", params[0], buf);
-                            if (params[0] >= NUM_ROM_BANKS) params[0] = NUM_ROM_BANKS-1;
-                            if (params[0] < 0) params[0] = 0;
-                            if (!load_upper_rom(buf, params[0])) {
+                            if ((params[0] >= NUM_ROM_BANKS) || (params[0] < 0)) {
+                                UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
+                                UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
+                                strcpy((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "Invalid bank number");
+                                UPPER_ROMS[rom_bank][RESP_BUF]++;
+                            } else if (!load_upper_rom(buf, params[0])) {
                                 UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                                 UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                                 strcpy((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "Failed to load ROM");
