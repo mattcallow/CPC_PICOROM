@@ -118,11 +118,14 @@ WRITE_LATCH signal is created using a Diode-OR gate:
              |
   ~WR __|\|__|____  WRITE_LATCH (GPIO27)
         |/|  |
-             |
-~IORQ __|\|__|
-        |/|
+             |     2k2
+~IORQ __|\|__|__/\/\/\/\___
+        |/|                |
+                           |
+                          GND
+             
 ```
-All diodes IN4148 or similar. Pulldown provided by GPIO pin.
+All diodes IN4148 or similar. Pulldown via 2k2 resistor to ground.
 
 ROMDIS is connected to 5V
 

@@ -26,6 +26,14 @@
 #define VER_MAJOR 3
 #define VER_MINOR 1
 #define VER_PATCH 1
+#ifndef CLOCK_SPEED_KHZ
+// overclock speed - pick the lowest freq that works reliably
+//#define CLOCK_SPEED_KHZ 200000
+//#define CLOCK_SPEED_KHZ 225000
+#define CLOCK_SPEED_KHZ 250000
+//#define CLOCK_SPEED_KHZ 260000
+#endif
+
 // not enough RAM for 16
 // limit to 7 so we don't emulate the DOS ROM
 #define NUM_ROM_BANKS 7
@@ -323,8 +331,9 @@ void __not_in_flash_func(handle_latch)(void)
                         cmd = 0;
                         break;
                     case CMD_ROMLIST1: 
-                        sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d ROM: %d.%d%d ROM Mask: %04X", 
+                        sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d %d MHz ROM: %d.%d%d ROMS: %04X", 
                                 VER_MAJOR, VER_MINOR, VER_PATCH,
+                                clock_get_hz(clk_sys)/1000000,
                                 UPPER_ROMS[rom_bank][1],UPPER_ROMS[rom_bank][2],UPPER_ROMS[rom_bank][3],
                                 upper_roms
                             );
@@ -478,11 +487,7 @@ void cpc_mode() {
         debug("basic loaded");
         load_upper_rom("picorom.rom", 1);
     }
-
-    // overclock - pick the lowest freq that works reliably
-    //set_sys_clock_khz(200000, true);
-    //set_sys_clock_khz(225000, true);
-    set_sys_clock_khz(250000, true);
+    set_sys_clock_khz(CLOCK_SPEED_KHZ, true);
     multicore_launch_core1(emulate);
     uint offset = pio_add_program(pio, &latch_program);
     latch_program_init(pio, sm, offset);
