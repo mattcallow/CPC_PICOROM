@@ -22,7 +22,7 @@
 #include "flash.h"
 
 #undef DEBUG_CONFIG
-#undef DEBUG_TO_FILE
+#define DEBUG_TO_FILE
 #define VER_MAJOR 3
 #define VER_MINOR 1
 #define VER_PATCH 1
@@ -71,8 +71,8 @@ const uint32_t RESET_GPIO = 28;
 const uint32_t RESET_MASK = 1 << RESET_GPIO;
 const uint32_t FULL_MASK = ADDRESS_BUS_MASK|DATA_BUS_MASK|ROMEN_MASK|A15_MASK|WRITE_LATCH_MASK|RESET_MASK;
 
-#define CPC_ASSERT_RESET()    gpio_set_dir(RESET_GPIO, GPIO_OUT)
-#define CPC_RELEASE_RESET()   gpio_set_dir(RESET_GPIO, GPIO_IN)
+#define CPC_ASSERT_RESET()   do { debug("CPC_ASSERT_RESET"); gpio_set_dir(RESET_GPIO, GPIO_OUT); } while(0)
+#define CPC_RELEASE_RESET()  do { debug("CPC_RELEASE_RESET"); gpio_set_dir(RESET_GPIO, GPIO_IN); } while(0)
 
 void fatal(int flashes) {
     while(1) {
@@ -330,26 +330,32 @@ void __not_in_flash_func(handle_latch)(void)
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
                         break;
-                    case CMD_ROMLIST1: 
+                    case CMD_ROMLIST1:
+                        list_index = 0;
+                        cmd = 0;
+                        sprintf(buf, "CMD_ROMLIST1 list_index=%d NUM_ROM_BANKS=%d", list_index, NUM_ROM_BANKS);
+                        debug(buf);
                         sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d %d MHz ROM: %d.%d%d ROMS: %04X", 
                                 VER_MAJOR, VER_MINOR, VER_PATCH,
                                 clock_get_hz(clk_sys)/1000000,
                                 UPPER_ROMS[rom_bank][1],UPPER_ROMS[rom_bank][2],UPPER_ROMS[rom_bank][3],
                                 upper_roms
                             );
+                        debug((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3]);
                         UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                         UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
-                        list_index = 0;
-                        cmd = 0;
                         break;
                     case CMD_ROMLIST2: // next rom
+                        sprintf(buf, "CMD_ROMLIST2 list_index=%d NUM_ROM_BANKS=%d", list_index, NUM_ROM_BANKS);
+                        debug(buf);
                         if (list_index < NUM_ROM_BANKS) {
                             uint8_t type = UPPER_ROMS[list_index][0];
                             uint8_t major = UPPER_ROMS[list_index][1];
                             uint8_t minor = UPPER_ROMS[list_index][2];
                             uint8_t patch = UPPER_ROMS[list_index][3];
                             if (upper_roms & (1<<list_index)) {
+                                buf[0] = 0; // ensure buf is null terminated
                                 if (type < 2 || type == 0x80) {
                                     uint16_t name_table = (((uint16_t)UPPER_ROMS[list_index][5] << 8) + UPPER_ROMS[list_index][4]) - 0xc000;
                                     int i=0;
@@ -371,11 +377,13 @@ void __not_in_flash_func(handle_latch)(void)
                             } else {
                                 sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "%2d: -- Not present", list_index);
                             }
+                            debug((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3]);
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                             UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                             list_index++;
                         } else {
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
+                            debug("End of list");
                         }
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;
@@ -493,7 +501,6 @@ void cpc_mode() {
     latch_program_init(pio, sm, offset);
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
     CPC_RELEASE_RESET();
-    debug("CPC released from reset");
     handle_latch();
     debug("ERROR - should never reach here");
 }

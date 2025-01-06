@@ -18,7 +18,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DPICO_USE_MALLOC_MUTEX=1")
 # rest of your project
 # set(PICO_DEFAULT_BINARY_TYPE copy_to_ram)
 
-foreach(target  cpc_rom_emulator_200 cpc_rom_emulator_210 cpc_rom_emulator_220 cpc_rom_emulator_230 cpc_rom_emulator_240 cpc_rom_emulator_250 cpc_rom_emulator_260 cpc_rom_emulator_270)
+foreach(target  cpc_rom_emulator) # cpc_rom_emulator_200 cpc_rom_emulator_210 cpc_rom_emulator_220 cpc_rom_emulator_230 cpc_rom_emulator_240 cpc_rom_emulator_250 cpc_rom_emulator_260 cpc_rom_emulator_270)
     add_executable(${target}
         main.c
         fatfs_driver.c
@@ -70,14 +70,14 @@ foreach(target  cpc_rom_emulator_200 cpc_rom_emulator_210 cpc_rom_emulator_220 c
 
 endforeach()
 
-target_compile_definitions(cpc_rom_emulator_200 PRIVATE CLOCK_SPEED_KHZ=200000)
-target_compile_definitions(cpc_rom_emulator_210 PRIVATE CLOCK_SPEED_KHZ=210000)
-target_compile_definitions(cpc_rom_emulator_220 PRIVATE CLOCK_SPEED_KHZ=220000)
-target_compile_definitions(cpc_rom_emulator_230 PRIVATE CLOCK_SPEED_KHZ=230000)
-target_compile_definitions(cpc_rom_emulator_240 PRIVATE CLOCK_SPEED_KHZ=240000)
-target_compile_definitions(cpc_rom_emulator_250 PRIVATE CLOCK_SPEED_KHZ=250000)
-target_compile_definitions(cpc_rom_emulator_260 PRIVATE CLOCK_SPEED_KHZ=260000)
-target_compile_definitions(cpc_rom_emulator_270 PRIVATE CLOCK_SPEED_KHZ=270000)
+#target_compile_definitions(cpc_rom_emulator_200 PRIVATE CLOCK_SPEED_KHZ=200000)
+#target_compile_definitions(cpc_rom_emulator_210 PRIVATE CLOCK_SPEED_KHZ=210000)
+#target_compile_definitions(cpc_rom_emulator_220 PRIVATE CLOCK_SPEED_KHZ=220000)
+#target_compile_definitions(cpc_rom_emulator_230 PRIVATE CLOCK_SPEED_KHZ=230000)
+#target_compile_definitions(cpc_rom_emulator_240 PRIVATE CLOCK_SPEED_KHZ=240000)
+#target_compile_definitions(cpc_rom_emulator_250 PRIVATE CLOCK_SPEED_KHZ=250000)
+#target_compile_definitions(cpc_rom_emulator_260 PRIVATE CLOCK_SPEED_KHZ=260000)
+#target_compile_definitions(cpc_rom_emulator_270 PRIVATE CLOCK_SPEED_KHZ=270000)
 
 
 add_custom_command(OUTPUT "picorom.rom" picorom.map
