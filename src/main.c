@@ -292,7 +292,6 @@ void __not_in_flash_func(handle_latch)(void)
     FILINFO fno;
     while(1) {
         uint8_t latch =  pio_sm_get_blocking(pio, sm)  & 0xff;
-        // printf("l:%d c:%d rb:%d\n", latch, cmd, rom_bank);
         switch(cmd) {
             case 0:
                 switch (latch) {
@@ -310,9 +309,11 @@ void __not_in_flash_func(handle_latch)(void)
                 }
                 break;
             case -1:
-                sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "l:%d c:%d np:%d ri:%d p[0]:%d p[1]:%d", latch, cmd, num_params, list_index, params[0], params[1]);
                 cmd = latch;
                 num_params = 0;
+                sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+0x40], "cmd:%d list_index:%d rom_bank:%d NUM_ROM_BANKS:%d upper_roms:0x%02x", 
+                    cmd, list_index, rom_bank, NUM_ROM_BANKS, upper_roms);
+                debug((char *)&UPPER_ROMS[rom_bank][RESP_BUF+0x40]);
                 switch(cmd) {
                     case CMD_ROMDIR1: // dir
                         res = f_opendir(&dir, "/");  
@@ -332,9 +333,6 @@ void __not_in_flash_func(handle_latch)(void)
                         break;
                     case CMD_ROMLIST1:
                         list_index = 0;
-                        cmd = 0;
-                        sprintf(buf, "CMD_ROMLIST1 list_index=%d NUM_ROM_BANKS=%d", list_index, NUM_ROM_BANKS);
-                        debug(buf);
                         sprintf((char *)&UPPER_ROMS[rom_bank][RESP_BUF+3], "FW: %d.%d.%d %d MHz ROM: %d.%d%d ROMS: %04X", 
                                 VER_MAJOR, VER_MINOR, VER_PATCH,
                                 clock_get_hz(clk_sys)/1000000,
@@ -345,10 +343,9 @@ void __not_in_flash_func(handle_latch)(void)
                         UPPER_ROMS[rom_bank][RESP_BUF+1] = 0; // status=OK
                         UPPER_ROMS[rom_bank][RESP_BUF+2] = 1; // string
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
+                        cmd = 0;
                         break;
                     case CMD_ROMLIST2: // next rom
-                        sprintf(buf, "CMD_ROMLIST2 list_index=%d NUM_ROM_BANKS=%d", list_index, NUM_ROM_BANKS);
-                        debug(buf);
                         if (list_index < NUM_ROM_BANKS) {
                             uint8_t type = UPPER_ROMS[list_index][0];
                             uint8_t major = UPPER_ROMS[list_index][1];
@@ -383,7 +380,7 @@ void __not_in_flash_func(handle_latch)(void)
                             list_index++;
                         } else {
                             UPPER_ROMS[rom_bank][RESP_BUF+1] = 1; // status
-                            debug("End of list");
+                            debug("End of ROM list");
                         }
                         UPPER_ROMS[rom_bank][RESP_BUF]++;
                         cmd = 0;

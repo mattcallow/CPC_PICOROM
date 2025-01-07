@@ -2,7 +2,7 @@
 ; 
 ver_major		EQU 3
 ver_minor		EQU 0
-ver_patch		EQU 1
+ver_patch		EQU 2
 TXT_OUTPUT: 	EQU $BB5A
 KM_WAIT_KEY:	EQU $BB18
 IO_PORT:		EQU $DFFC
@@ -90,7 +90,7 @@ START_MSG:
 
 		MACRO LIST_COMMAND cmd1, cmd2
 		LOCAL wait, done ,nokey
-		ld d, 22
+		ld d, 22		; number of lines to display
 		ld hl, RESP_BUF
 		ld a, (hl)		; get current sequence number in A
 		ld BC, IO_PORT 	; command prefix
@@ -273,10 +273,12 @@ disp_str:	; display 0 terminated string, pointed to by HL
 		push af
 disp_str1:	
 		ld A, (HL)
+		or A
+		jr z, disp_done
 		call TXT_OUTPUT
 		inc HL
-		or A
-		jr nz, disp_str1
+		jr disp_str1
+disp_done:
 		pop af
 		ret
 END:
