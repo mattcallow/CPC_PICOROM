@@ -21,7 +21,7 @@
 #include "bootsel_button.h"
 #include "flash.h"
 
-#undef DEBUG_CONFIG
+#undef DEBUG_TO_SERIAL
 #define DEBUG_TO_FILE
 #define VER_MAJOR 3
 #define VER_MINOR 1
@@ -169,19 +169,73 @@ void debug(const char *msg) {
 #endif
 }
 
+void fdebug(const char *fmt, ...) {
+#ifdef DEBUG_TO_FILE
+    FIL fp;
+    UINT l;
+    char buf[256];
+    va_list args;
+    va_start (args, fmt);
+    vsprintf (buf, fmt, args);
+    va_end (args);
+    f_open(&fp, "DEBUG.TXT", FA_WRITE|FA_OPEN_APPEND);
+    f_printf(&fp, "%06d: %s\n", to_ms_since_boot(get_absolute_time()), buf);
+    f_close(&fp);
+#endif
+}
+
+
+#pragma pack(1)
+typedef struct {
+    uint8_t user_number;
+    char filename[8];
+    char ext[3];
+    char zeros[4];
+    uint8_t block_number;
+    uint8_t last_block;
+    uint8_t file_type;
+    uint16_t data_length;
+    uint16_t data_location;
+    uint8_t first_block;
+    uint16_t logical_length;
+    uint16_t entry_address;
+    char unused[36];
+    uint8_t real_length_h;
+    uint16_t real_length;
+    uint16_t checksum;
+    char unused2[59];
+} amsdos_header_t;
+#pragma pack()
 
 bool load_rom(const TCHAR* path, void* dest) {
     FIL fp;
     FRESULT fr;
     UINT bytes_read;
     FILINFO fno;
+    fdebug("Loading %s", path);
     if (f_stat(path, &fno) != FR_OK) return false;
     if (f_open(&fp, path, FA_READ) != FR_OK) return false;
-    if (fno.fsize == 16*1024 + 128) {
-        // assume the ROM has a header - discard it
-        fr = f_read(&fp, dest, 128, &bytes_read);
+    fr = f_read(&fp, dest, 128, &bytes_read);
+    if (fr != FR_OK) {
+        f_close(&fp);
+        fdebug("Failed to read header from %s", path);
+        return false;
     }
-    fr = f_read(&fp, dest, ROM_SIZE, &bytes_read);
+    amsdos_header_t *hdr = (amsdos_header_t *)dest;
+    uint16_t chksum = 0;
+    for (int i=0;i<67;i++) {
+        chksum += *(uint8_t *)(dest+i);
+    }
+    UINT btr;
+    fdebug("Calculated chksum 0X%02X header chksum 0X%02X", chksum, hdr->checksum);
+    if (chksum == hdr->checksum) {
+        btr = hdr->logical_length;
+    } else {
+        f_rewind(&fp);
+        btr = ROM_SIZE;
+    }
+    fr = f_read(&fp, dest, btr, &bytes_read);
+    fdebug("btr=%d bytes_read=%d fr=%d", btr, bytes_read, fr);
     f_close(&fp);
     if (fr != FR_OK) return false;
     return true;
@@ -508,7 +562,7 @@ int main() {
     // disable XIP cache - this frees up the cache RAM for variable storage
     hw_clear_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_EN_BITS);
 #endif
-#ifdef DEBUG_CONFIG
+#ifdef DEBUG_TO_SERIAL
     board_init();
     tud_init(BOARD_TUD_RHPORT);
     stdio_init_all();

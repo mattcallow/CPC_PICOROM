@@ -33,6 +33,7 @@ CMD_ROMSET:		EQU $12
 		jp ROMSET
 		jp ROMDIR
 		jp ROMLIST
+		jp ROMLIST
 		jp ROMOUT
 		jp ROMIN
 
@@ -43,6 +44,7 @@ NAME_TABLE:
 		defm  "ROMSE", 'T'+128
 		defm  "PDI", 'R'+128
 		defm  "ROM", 'S'+128
+		defm  "PROM", 'S'+128
 		defm  "ROMOU", 'T'+128
 		defm  "ROMI", 'N'+128
 		defb    0
