@@ -22,7 +22,7 @@
 #include "flash.h"
 
 #undef DEBUG_TO_SERIAL
-#define DEBUG_TO_FILE
+#undef DEBUG_TO_FILE
 #define VER_MAJOR 3
 #define VER_MINOR 1
 #define VER_PATCH 1
@@ -317,22 +317,18 @@ void __not_in_flash_func(emulate)(void)
     }
 }
 
-#define RESP_BUF 0x3F00
+#define RESP_BUF        0x3F00
 #define CMD_PREFIX_BYTE 0xfc
-#define CMD_PICOLOAD 0xff
-#define CMD_LED 0xfe
 
-#define CMD_ROMDIR1		0x1
-#define CMD_ROMDIR2		0x2
-#define CMD_ROMLIST1	0x7
-#define CMD_ROMLIST2	0x8
-#define CMD_CFGLIST1     0x09
-#define CMD_CFGLIST2     0x0a
-
-#define CMD_ROMIN 0x10
-#define CMD_ROMOUT 0x11
-
-#define CMD_ROMSET 0x12
+#define CMD_PICOLOAD    0xff
+#define CMD_LED         0xfe
+#define CMD_ROMDIR1		0xfd
+#define CMD_ROMDIR2		0xfc
+#define CMD_ROMLIST1	0xfb
+#define CMD_ROMLIST2    0xfa
+#define CMD_ROMIN       0xf9
+#define CMD_ROMOUT      0xf8
+#define CMD_ROMSET      0xf7
 
 void __not_in_flash_func(handle_latch)(void)
 {
