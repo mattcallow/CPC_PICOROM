@@ -127,6 +127,9 @@ WRITE_LATCH signal is created using a Diode-OR gate:
 ```
 All diodes IN4148 or similar. Pulldown via 2k2 resistor to ground.
 
+Note: Rev1 board do not have the resistor pulldown, but it can be added as shown below
+![Pulldown mod](/hardware/pulldown_mod.jpg)
+
 ROMDIS is connected to 5V
 
 Pico is powered from 5V via a IN4148 diode to VSYS
