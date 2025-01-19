@@ -1,6 +1,6 @@
 // CPC ROM emulator
 // Matt Callow March 2023
-// Updated Sept 2024
+// Updated Jan 2025
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,8 +35,7 @@
 #endif
 
 // not enough RAM for 16
-// limit to 7 so we don't emulate the DOS ROM
-#define NUM_ROM_BANKS 7
+#define NUM_ROM_BANKS 12
 #define ROM_SIZE 16384
 // RAM copies of the ROMs
 #undef USE_XIP_CACHE_AS_RAM

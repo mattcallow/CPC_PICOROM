@@ -1,8 +1,8 @@
 ; Pico ROM control ROM
 ; 
 ver_major		EQU 3
-ver_minor		EQU 0
-ver_patch		EQU 2
+ver_minor		EQU 1
+ver_patch		EQU 1
 TXT_OUTPUT: 	EQU $BB5A
 KM_WAIT_KEY:	EQU $BB18
 IO_PORT:		EQU $DFFC
